@@ -1,6 +1,8 @@
 import hashlib
 import json
+import os
 import re
+import shutil
 from importlib.metadata import version
 from pathlib import Path
 
@@ -86,13 +88,24 @@ def _text_pdf(path: Path) -> None:
 
 @pytest.mark.parametrize("scanned", [False, True])
 def test_pdf_without_ocr(tmp_path, scanned):
-    models = Path(__file__).resolve().parents[1] / "resources" / "models"
-    if not (models / "docling-project--docling-layout-heron" / "model.safetensors").is_file():
-        pytest.skip("Modelos locales de Docling no instalados")
-    if not (
-        models / "docling-project--docling-models" / "model_artifacts" / "tableformer"
-    ).is_dir():
-        pytest.skip("Modelos de tablas de Docling no instalados")
+    available = Path(__file__).resolve().parents[1] / "resources" / "models"
+    models = tmp_path / "modelos"
+    for name in (
+        "docling-project--docling-layout-heron/config.json",
+        "docling-project--docling-layout-heron/preprocessor_config.json",
+        "docling-project--docling-layout-heron/model.safetensors",
+        "docling-project--docling-models/model_artifacts/tableformer/accurate/tm_config.json",
+        "docling-project--docling-models/model_artifacts/tableformer/accurate/tableformer_accurate.safetensors",
+    ):
+        source_model = available / name
+        if not source_model.is_file():
+            pytest.skip("Modelos locales de Docling no instalados")
+        target_model = models / name
+        target_model.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.link(source_model, target_model)
+        except OSError:
+            shutil.copy2(source_model, target_model)
     source = tmp_path / "origen.pdf"
     if scanned:
         image = Image.new("RGB", (612, 792), "white")

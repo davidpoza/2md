@@ -188,7 +188,7 @@ class ReviewDialog(QDialog):
     def validate_code(self) -> None:
         code = self.editor.toPlainText()
         self.invalidate()
-        self.message.setText("Validando Mermaid...")
+        self.message.setText("Preparando recursos y validando Mermaid...")
         self.start_worker(
             lambda: render_mermaid(code),
             lambda result, error: self.render_finished(code, result, error),

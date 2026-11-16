@@ -52,15 +52,34 @@ las dependencias resueltas; la distribución todavía no está verificada.
 
 ### Empaquetado de desarrollo
 
-`scripts\build.ps1` intenta generar `dist\2MD.exe` con PyInstaller `--onefile`.
+`scripts\build.ps1` genera dos distribuciones: `dist\2MD\2MD.exe`, dentro de una
+carpeta portable, y `dist\2MD.exe`, un único archivo. La carpeta debe copiarse
+completa, pero evita la extracción de `--onefile` al arrancar.
+
+```powershell
+.\scripts\build.ps1
+.\scripts\build.ps1 -Format OneDir
+.\scripts\build.ps1 -Format OneFile
+```
+
+En compilaciones posteriores puede añadirse `-ReuseMermaid` para reutilizar el
+archivo ya creado. No se debe utilizar si se han modificado el renderizador,
+las dependencias, Node o Chromium.
+Tampoco debe reutilizarse un archivo generado antes de aplicar cambios al guion de
+empaquetado: el runtime Mermaid ya no incluye los archivos de depuración `.map`.
+
 Requiere uv, Python 3.12 x64 y los modelos de diseño y tablas de Docling obtenidos
 previamente en `resources\models`, por ejemplo mediante
 `docling-tools models download layout tableformer -o resources\models`.
 No requiere modelos de OCR. Los modelos no están incluidos en el
-repositorio. El directorio se incorpora al ejecutable y se utiliza por defecto si
-el usuario no selecciona otro. También requiere `tools\mermaid\node_modules`,
+repositorio. Se incorporan únicamente Heron con Transformers y TableFormer Accurate;
+las variantes ONNX y Fast no se utilizan. Los modelos incluidos se usan por defecto
+si el usuario no selecciona otros. También requiere `tools\mermaid\node_modules`,
 `tools\mermaid\runtime\node.exe` y Chromium en `tools\mermaid\browser`. El guion
-comprueba estos recursos y los incorpora, pero **no se ha validado** y no constituye
+agrupa estos recursos en un archivo para evitar que PyInstaller clasifique cada
+archivo individualmente. En el ejecutable se extraen temporalmente la primera vez
+que se valida un diagrama; esa primera validación puede tardar y requiere espacio
+temporal adicional. El guion **no se ha validado** y no constituye
 una distribución final. Se deben comprobar también las licencias y el funcionamiento
 sin conexión en Windows limpio.
 

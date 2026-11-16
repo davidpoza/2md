@@ -2,7 +2,7 @@
 from PyInstaller.utils.hooks import collect_all
 from PyInstaller.utils.hooks import copy_metadata
 
-datas = [('C:/Users/A200036616/dev/2md/resources/models', 'twomd/resources/models'), ('C:/Users/A200036616/dev/2md/tools/mermaid', 'twomd/resources/mermaid')]
+datas = [('C:/Users/A200036616/dev/2md/resources/models', 'twomd/resources/models'), ('C:/Users/A200036616/dev/2md/build/mermaid-runtime.zip', 'twomd/resources')]
 binaries = []
 hiddenimports = []
 datas += copy_metadata('torch')

@@ -30,7 +30,12 @@ def convert_document(
     models_directory: Path | None = None,
 ) -> ConversionOutcome:
     from docling.datamodel.base_models import ConversionStatus, InputFormat
-    from docling.datamodel.pipeline_options import PdfPipelineOptions
+    from docling.datamodel.pipeline_options import (
+        LayoutObjectDetectionOptions,
+        PdfPipelineOptions,
+        TableFormerMode,
+        TableStructureOptions,
+    )
     from docling.document_converter import DocumentConverter, PdfFormatOption
     from docling_core.types.doc import ImageRefMode
 
@@ -93,6 +98,8 @@ def convert_document(
         images_scale=2.0,
         enable_remote_services=False,
         artifacts_path=models_directory,
+        layout_options=LayoutObjectDetectionOptions.from_preset("layout_heron_default"),
+        table_structure_options=TableStructureOptions(mode=TableFormerMode.ACCURATE),
     )
     converter = DocumentConverter(
         allowed_formats=[InputFormat.PDF, InputFormat.DOCX],
