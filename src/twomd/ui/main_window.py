@@ -1,9 +1,10 @@
 from pathlib import Path
-from threading import Event
+from threading import BoundedSemaphore, Event
 
 from PySide6.QtCore import Qt, QThreadPool, Signal
 from PySide6.QtGui import QCloseEvent, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QFileDialog,
     QFrame,
@@ -25,9 +26,9 @@ from PySide6.QtWidgets import (
 import twomd
 from twomd.config import Settings, save_settings
 from twomd.conversion import ConversionOutcome
-from twomd.credentials import set_secret
+from twomd.credentials import get_secret, set_secret
 from twomd.documents import supported_documents
-from twomd.ui.conversion_worker import ConversionWorker
+from twomd.ui.conversion_worker import AutomaticOptions, ConversionWorker
 from twomd.ui.review_dialog import ReviewDialog
 from twomd.ui.settings_dialog import SettingsDialog
 
@@ -67,6 +68,7 @@ class MainWindow(QMainWindow):
         self.batch_done = 0
         self.batch_destination = Path()
         self.batch_models: Path | None = None
+        self.batch_automatic: AutomaticOptions | None = None
         self.thread_pool = QThreadPool(self)
         self.setWindowTitle("2MD — Conversor documental")
         self.resize(920, 680)
@@ -114,6 +116,14 @@ class MainWindow(QMainWindow):
         layout.addLayout(destination)
 
         layout.addWidget(QLabel("Progreso global"))
+        self.automatic_diagrams = QCheckBox(
+            "Detectar diagramas y generar Mermaid automáticamente con IA"
+        )
+        self.automatic_diagrams.setToolTip(
+            "Envía las imágenes y su contexto al modelo configurado. "
+            "Los diagramas generados quedan pendientes de revisión."
+        )
+        layout.addWidget(self.automatic_diagrams)
         self.progress = QProgressBar()
         self.progress.setValue(0)
         layout.addWidget(self.progress)
@@ -230,6 +240,57 @@ class MainWindow(QMainWindow):
         if not self.settings.output_directory:
             QMessageBox.information(self, "Conversión", "Selecciona una carpeta de destino.")
             return
+        automatic = None
+        if self.automatic_diagrams.isChecked():
+            if not self.settings.ai.enabled:
+                QMessageBox.warning(
+                    self, "Inteligencia artificial", "Activa y configura la IA antes de continuar."
+                )
+                return
+            message = (
+                "Se enviarán las imágenes extraídas y su contexto al endpoint de IA configurado. "
+                "El modelo debe admitir imágenes. Los diagramas se insertarán junto a la imagen "
+                "original y quedarán pendientes de revisión."
+            )
+            if self.settings.ai.base_url.lower().startswith("http://"):
+                message += "\n\nLa conexión HTTP enviará los datos y la API Key sin cifrar."
+            answer = QMessageBox.question(
+                self,
+                "Análisis automático de imágenes",
+                message + "\n\n¿Deseas continuar?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            try:
+                key = get_secret("api")
+                password = (
+                    get_secret("proxy")
+                    if self.settings.network.mode == "manual" and self.settings.network.proxy_user
+                    else None
+                )
+            except Exception:  # noqa: BLE001
+                QMessageBox.critical(
+                    self, "Credenciales", "No se pudieron leer las credenciales de Windows."
+                )
+                return
+            if not key:
+                QMessageBox.warning(self, "Inteligencia artificial", "Falta la API Key.")
+                return
+            if (
+                self.settings.network.mode == "manual"
+                and self.settings.network.proxy_user
+                and not password
+            ):
+                QMessageBox.warning(self, "Proxy", "Falta la contraseña del proxy.")
+                return
+            automatic = AutomaticOptions(
+                self.settings.model_copy(deep=True),
+                key,
+                password,
+                BoundedSemaphore(self.settings.ai.concurrency),
+            )
         models = (
             Path(self.settings.models_directory)
             if self.settings.models_directory
@@ -252,9 +313,11 @@ class MainWindow(QMainWindow):
         self.batch_done = 0
         self.batch_destination = Path(self.settings.output_directory)
         self.batch_models = models if models.is_dir() else None
+        self.batch_automatic = automatic
         self.thread_pool.setMaxThreadCount(self.settings.document_concurrency)
         self.start_button.setEnabled(False)
         self.retry_button.setEnabled(False)
+        self.automatic_diagrams.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.progress.setRange(0, self.batch_total)
         self.progress.setValue(0)
@@ -264,21 +327,37 @@ class MainWindow(QMainWindow):
         while self.pending and len(self.workers) < self.thread_pool.maxThreadCount():
             row = self.pending.pop(0)
             source = self.documents[row]
+            self.outcomes.pop(row, None)
             worker = ConversionWorker(
-                row, source, self.batch_destination, self.cancel_event, self.batch_models
+                row,
+                source,
+                self.batch_destination,
+                self.cancel_event,
+                self.batch_models,
+                self.batch_automatic,
             )
             worker.signals.finished.connect(self.conversion_finished)
             worker.signals.failed.connect(self.conversion_failed)
             worker.signals.cancelled.connect(self.conversion_cancelled)
             self.workers[row] = worker
-            self.table.item(row, 1).setText("Extrayendo contenido")
+            self.table.item(row, 1).setText(
+                "Procesando documento e imágenes"
+                if self.batch_automatic
+                else "Extrayendo contenido"
+            )
             self.table.item(row, 2).setText("En curso")
             self.activity.appendPlainText(f"Convirtiendo: {source}")
             self.thread_pool.start(worker)
 
     def conversion_finished(self, row: int, outcome: ConversionOutcome) -> None:
         self.outcomes[row] = outcome
-        status = "Completado con advertencias" if outcome.warnings else "Completado"
+        status = (
+            "Completado con advertencias (reintentable)"
+            if outcome.retryable
+            else "Completado con advertencias"
+            if outcome.warnings
+            else "Completado"
+        )
         self.table.item(row, 1).setText(status)
         self.table.item(row, 2).setText("100 %")
         self.activity.appendPlainText(f"Markdown generado: {outcome.markdown}")
@@ -319,8 +398,10 @@ class MainWindow(QMainWindow):
         self.progress.setValue(self.batch_done)
         self.schedule()
         if not self.pending and not self.workers:
+            self.batch_automatic = None
             self.start_button.setEnabled(True)
             self.retry_button.setEnabled(True)
+            self.automatic_diagrams.setEnabled(True)
             self.cancel_button.setEnabled(False)
 
     def cancel_conversion(self) -> None:
@@ -338,7 +419,11 @@ class MainWindow(QMainWindow):
 
     def retry_failed(self) -> None:
         for row in range(len(self.documents)):
-            if self.table.item(row, 1).text() in ("Error", "Cancelado"):
+            if self.table.item(row, 1).text() in (
+                "Error",
+                "Cancelado",
+                "Completado con advertencias (reintentable)",
+            ):
                 self.table.item(row, 1).setText("Pendiente")
                 self.table.item(row, 2).setText("0 %")
         self.start_conversion()

@@ -21,6 +21,7 @@ class ConversionCancelled(Exception):
 class ConversionOutcome:
     markdown: Path
     warnings: tuple[str, ...]
+    retryable: bool = False
 
 
 def convert_document(
@@ -28,6 +29,7 @@ def convert_document(
     destination: Path,
     cancel: Event | None = None,
     models_directory: Path | None = None,
+    cache_variant: str = "",
 ) -> ConversionOutcome:
     from docling.datamodel.base_models import ConversionStatus, InputFormat
     from docling.datamodel.pipeline_options import (
@@ -80,6 +82,8 @@ def convert_document(
     config = f"2md-v1:{docling_version}:{core_version}:scale=2:{model_hash}"
     if source.suffix.lower() == ".pdf":
         config += ":ocr=off"
+    if cache_variant:
+        config += f":diagramas={cache_variant}"
     config_hash = hashlib.sha256(config.encode()).hexdigest()
     check_cancelled()
     path_hash = hashlib.sha256(str(source).casefold().encode("utf-8")).hexdigest()[:12]

@@ -19,7 +19,7 @@ from twomd.config import Settings
 from twomd.credentials import get_secret
 from twomd.diagrams import DiagramProposal, propose_diagram
 from twomd.mermaid import render_mermaid
-from twomd.review import PictureReference, accept_diagram, picture_references
+from twomd.review import PictureReference, accept_diagram, pending_diagram, picture_references
 
 
 class ReviewSignals(QObject):
@@ -134,7 +134,19 @@ class ReviewDialog(QDialog):
                     Qt.TransformationMode.SmoothTransformation,
                 )
             )
-            self.message.setText("Genera una propuesta o introduce Mermaid manualmente.")
+            try:
+                pending = pending_diagram(self.markdown, reference)
+            except (OSError, ValueError):
+                self.message.setText("No se pudo leer el diagrama pendiente.")
+                self.update_buttons()
+                return
+            if pending is not None:
+                self.editor.setPlainText(pending)
+                self.message.setText(
+                    "Propuesta automática pendiente de revisión. Valídala y compárala con la imagen."
+                )
+            else:
+                self.message.setText("Genera una propuesta o introduce Mermaid manualmente.")
         self.update_buttons()
 
     def start_worker(self, operation, callback, network_error: bool = False) -> None:

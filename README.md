@@ -27,8 +27,11 @@ La interfaz contiene configuración de IA, proxy y CA, almacenamiento de secreto
 con el backend de Windows de keyring y pruebas explícitas de conexión y visión.
 La revisión de imágenes de un documento convertido permite solicitar una propuesta
 de IA con consentimiento, editarla y validarla antes de aceptarla. El Markdown
-conserva la imagen original junto al bloque Mermaid aceptado. La revisión es manual:
-no se procesan todas las imágenes automáticamente. Se han probado localmente el
+conserva la imagen original junto al bloque Mermaid aceptado. La casilla de la
+ventana principal permite analizar automáticamente las imágenes con el modelo
+configurado, previo consentimiento para enviar imágenes y contexto. Los diagramas
+detectados y validados se insertan junto a la imagen y se marcan como pendientes
+de revisión; los errores se muestran y pueden reintentarse. Se han probado localmente el
 renderizado Mermaid, el rechazo de sintaxis inválida y el bloqueo de una petición
 de imagen a localhost. El ejecutable sigue sin verificarse, y tampoco se ha probado
 la aplicación con una red corporativa.

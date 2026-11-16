@@ -1,9 +1,20 @@
+import hashlib
+from dataclasses import dataclass, field
 from pathlib import Path
-from threading import Event
+from threading import BoundedSemaphore, Event
 
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
+from twomd.config import Settings
 from twomd.conversion import ConversionCancelled, convert_document
+
+
+@dataclass(frozen=True)
+class AutomaticOptions:
+    settings: Settings
+    api_key: str = field(repr=False)
+    proxy_password: str | None = field(repr=False)
+    requests: BoundedSemaphore = field(repr=False)
 
 
 class ConversionSignals(QObject):
@@ -14,7 +25,13 @@ class ConversionSignals(QObject):
 
 class ConversionWorker(QRunnable):
     def __init__(
-        self, row: int, source: Path, destination: Path, cancel: Event, models: Path | None
+        self,
+        row: int,
+        source: Path,
+        destination: Path,
+        cancel: Event,
+        models: Path | None,
+        automatic: AutomaticOptions | None = None,
     ) -> None:
         super().__init__()
         self.row = row
@@ -22,12 +39,31 @@ class ConversionWorker(QRunnable):
         self.destination = destination
         self.cancel = cancel
         self.models = models
+        self.automatic = automatic
         self.signals = ConversionSignals()
 
     @Slot()
     def run(self) -> None:
         try:
-            outcome = convert_document(self.source, self.destination, self.cancel, self.models)
+            variant = ""
+            if self.automatic:
+                variant = hashlib.sha256(
+                    ("auto-v1:" + self.automatic.settings.ai.model_dump_json()).encode("utf-8")
+                ).hexdigest()
+            outcome = convert_document(
+                self.source, self.destination, self.cancel, self.models, cache_variant=variant
+            )
+            if self.automatic:
+                from twomd.automatic_diagrams import process_automatic_diagrams
+
+                outcome = process_automatic_diagrams(
+                    outcome,
+                    self.automatic.settings,
+                    self.automatic.api_key,
+                    self.automatic.proxy_password,
+                    self.cancel,
+                    self.automatic.requests,
+                )
         except ConversionCancelled:
             self.signals.cancelled.emit(self.row)
         except Exception as error:  # noqa: BLE001

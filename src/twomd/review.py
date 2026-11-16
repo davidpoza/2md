@@ -19,6 +19,8 @@ class PictureReference:
     markdown_link: str
     context: str
     index: int
+    start: int
+    end: int
 
 
 def picture_references(markdown: Path) -> list[PictureReference]:
@@ -45,9 +47,36 @@ def picture_references(markdown: Path) -> list[PictureReference]:
                 markdown_link=match.group(0),
                 context=text[max(0, match.start() - 1500) : match.end() + 1500],
                 index=len(result) + 1,
+                start=match.start(),
+                end=match.end(),
             )
         )
     return result
+
+
+def _pending_block(index: int, code: str) -> str:
+    return (
+        f"\n\n<!-- 2MD:mermaid-pendiente:{index} -->\n"
+        "> **Diagrama generado por IA: pendiente de revisión.**\n\n"
+        f"```mermaid\n{code}\n```\n"
+        f"<!-- /2MD:mermaid-pendiente:{index} -->"
+    )
+
+
+def pending_diagram(markdown: Path, reference: PictureReference) -> str | None:
+    text = markdown.read_text(encoding="utf-8")
+    references = picture_references(markdown)
+    if reference.index > len(references) or references[reference.index - 1] != reference:
+        raise ValueError("El Markdown ha cambiado; vuelve a abrir la revisión.")
+    path = markdown.parent / "diagrams" / f"diagram-{reference.index:03d}.mmd"
+    if not path.resolve().is_relative_to(markdown.parent.resolve()):
+        raise ValueError("El archivo de diagrama está fuera de la salida.")
+    if not path.is_file():
+        return None
+    code = path.read_text(encoding="utf-8").strip()
+    if code and text[reference.end :].startswith(_pending_block(reference.index, code)):
+        return code
+    return None
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -65,7 +94,12 @@ def _atomic_write(path: Path, content: str) -> None:
 
 
 def accept_diagram(
-    markdown: Path, reference: PictureReference, code: str, model: str | None = None
+    markdown: Path,
+    reference: PictureReference,
+    code: str,
+    model: str | None = None,
+    *,
+    pending: bool = False,
 ) -> Path:
     code = code.strip()
     if not code or "```" in code:
@@ -74,8 +108,6 @@ def accept_diagram(
     references = picture_references(markdown)
     if reference.index > len(references) or references[reference.index - 1] != reference:
         raise ValueError("El Markdown ha cambiado; vuelve a abrir la revisión.")
-    if text.count(reference.markdown_link) != 1:
-        raise ValueError("La imagen aparece varias veces; no se puede asociar sin ambigüedad.")
     report_path = markdown.parent / "conversion-report.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
     diagrams = markdown.parent / "diagrams"
@@ -83,20 +115,26 @@ def accept_diagram(
     if not diagrams.resolve().is_relative_to(markdown.parent.resolve()):
         raise ValueError("La carpeta de diagramas está fuera de la salida.")
     diagram_path = diagrams / f"diagram-{reference.index:03d}.mmd"
-    if diagram_path.exists():
+    previous = pending_diagram(markdown, reference)
+    if diagram_path.exists() and (pending or previous is None):
         raise FileExistsError("Ya existe un diagrama para esta imagen; no se sobrescribirá.")
 
-    updated = text.replace(
-        reference.markdown_link,
-        f"{reference.markdown_link}\n\n```mermaid\n{code}\n```",
-        1,
-    )
-    with diagram_path.open("x", encoding="utf-8", newline="\n") as file:
-        file.write(code + "\n")
+    insertion = _pending_block(reference.index, code) if pending else f"\n\n```mermaid\n{code}\n```"
+    old_block = _pending_block(reference.index, previous) if previous is not None else ""
+    updated = text[: reference.end] + insertion + text[reference.end + len(old_block) :]
+    if previous is None:
+        with diagram_path.open("x", encoding="utf-8", newline="\n") as file:
+            file.write(code + "\n")
+    else:
+        _atomic_write(diagram_path, code + "\n")
     try:
         _atomic_write(markdown, updated)
-        report["diagramas"] = int(report["diagramas"]) + 1
-        report["diagramas_convertidos"] = int(report["diagramas_convertidos"]) + 1
+        if previous is None:
+            report["diagramas"] = int(report["diagramas"]) + 1
+            report["diagramas_convertidos"] = int(report["diagramas_convertidos"]) + 1
+        report["diagramas_pendientes_revision"] = int(
+            report.get("diagramas_pendientes_revision", 0)
+        ) + (1 if pending else -1 if previous is not None else 0)
         if model:
             report["modelo_ia"] = model
         report["archivos"] = output_hashes(markdown.parent, markdown)
@@ -104,7 +142,10 @@ def accept_diagram(
     except Exception as error:
         try:
             _atomic_write(markdown, text)
-            diagram_path.unlink(missing_ok=True)
+            if previous is None:
+                diagram_path.unlink(missing_ok=True)
+            else:
+                _atomic_write(diagram_path, previous + "\n")
         except OSError as rollback_error:
             raise RuntimeError(
                 "La revisión falló y no pudo restaurarse completamente; "
