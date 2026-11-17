@@ -63,11 +63,8 @@ copiarse completa. El script no elimina un `dist\2MD.exe` antiguo que ya exista.
 .\scripts\build.ps1
 ```
 
-En compilaciones posteriores puede añadirse `-ReuseMermaid` para reutilizar el
-archivo ya creado. No se debe utilizar si se han modificado el renderizador,
-las dependencias, Node o Chromium.
-Tampoco debe reutilizarse un archivo generado antes de aplicar cambios al guion de
-empaquetado: el runtime Mermaid ya no incluye los archivos de depuración `.map`.
+El renderizador Mermaid usa `mermaidx` con QuickJS, sin Node, npm, Puppeteer ni
+Chromium. Ya no se utiliza el parámetro `-ReuseMermaid` ni se genera un ZIP de runtime.
 
 Requiere uv, Python 3.12 x64 y los modelos de diseño y tablas de Docling obtenidos
 previamente en `resources\models`, por ejemplo mediante
@@ -75,27 +72,29 @@ previamente en `resources\models`, por ejemplo mediante
 No requiere modelos de OCR. Los modelos no están incluidos en el
 repositorio. Se incorporan únicamente Heron con Transformers y TableFormer Accurate;
 las variantes ONNX y Fast no se utilizan. Los modelos incluidos se usan por defecto
-si el usuario no selecciona otros. También requiere `tools\mermaid\node_modules`,
-`tools\mermaid\runtime\node.exe` y Chromium en `tools\mermaid\browser`. El guion
-agrupa estos recursos en un archivo para evitar que PyInstaller clasifique cada
-archivo individualmente. En el ejecutable se extraen temporalmente la primera vez
-que se valida un diagrama; esa primera validación puede tardar y requiere espacio
-temporal adicional. El guion **no se ha validado** y no constituye
+si el usuario no selecciona otros. Las dependencias Python del renderizador, sus
+archivos JavaScript y fuentes se incorporan mediante PyInstaller; no se extrae
+un navegador al validar un diagrama. El guion **no se ha validado** y no constituye
 una distribución final. Se deben comprobar también las licencias y el funcionamiento
 sin conexión en Windows limpio.
 
-Para preparar el renderizador de desarrollo con Node 22.13 o posterior:
+`uv sync` instala también el renderizador de desarrollo. `mermaidx==0.11.3`,
+`novasvg==0.11.5` y QuickJS-ng disponen de wheels compatibles con Python 3.12 y
+Windows x64. No se descarga ningún componente durante la conversión.
+El renderizado devuelve SVG: la vista ampliada de Qt lo dibuja como vector,
+con zoom sin pixelación. Cada operación se ejecuta en un proceso separado,
+con un límite de 180 segundos y sin exponer APIs de red al JavaScript.
+La compatibilidad visual de todos los diagramas y el portable aún debe verificarse.
+
+Al migrar desde una versión anterior, usa una carpeta de distribución nueva para
+no conservar dependencias antiguas:
 
 ```powershell
-npm ci --prefix tools\mermaid --ignore-scripts
-$env:PUPPETEER_CACHE_DIR = (Join-Path (Get-Location) 'tools\mermaid\browser')
-.\tools\mermaid\node_modules\.bin\puppeteer.cmd browsers install chrome-headless-shell
-New-Item -ItemType Directory -Force tools\mermaid\runtime
-Copy-Item (Get-Command node.exe).Source tools\mermaid\runtime\node.exe
+.\scripts\build.ps1 -OutputDirectory dist-mermaidx
 ```
 
-La preparación descarga componentes en el equipo de desarrollo, no durante la
-conversión. No se debe deshabilitar la validación de certificados para las descargas.
+Los antiguos recursos locales de `tools\mermaid` y `build\mermaid-runtime.zip`
+ya no se utilizan ni se incluyen en el portable.
 
 ### MCP local
 
@@ -214,11 +213,13 @@ verificar el conjunto de dependencias en Windows x64 antes de fijar sus versione
   permite obtenerlos por adelantado y configurar `artifacts_path`. Hay que incluir
   los modelos exactos seleccionados y sus licencias en la distribución, e
   investigar tamaño y rutas, sin depender de descargas silenciosas.
-- **Mermaid.** Mermaid CLI necesita Node, Puppeteer y un navegador compatible;
-  PyInstaller no los incorpora automáticamente. Hay que distribuir y verificar
-  estos componentes o una alternativa equivalente, sus licencias y el aislamiento
-  del renderizado de contenido no confiable. No se ha demostrado aún el
-  empaquetado final autocontenido. Un renderizado válido no garantiza que el
+- **Mermaid.** `mermaidx` ejecuta Mermaid.js con QuickJS-ng y genera SVG sin
+  navegador. El spec incluye sus recursos, fuentes y dependencias nativas; hay
+  que verificar sus licencias y el empaquetado final autocontenido. La vista Qt
+  usa etiquetas SVG en lugar de HTML para evitar depender de un motor web.
+  Las propuestas que requieran etiquetas HTML no compatibles se rechazan
+  explícitamente, conservando siempre la imagen original.
+  Un renderizado válido no garantiza que el
   diagrama reproduzca fielmente el original: será necesaria revisión humana.
 - **Cancelación y concurrencia.** Las tareas de Qt pueden mantener la interfaz
   responsiva, pero la interrupción de una operación Docling en curso depende de
@@ -238,5 +239,5 @@ verificar el conjunto de dependencias en Windows x64 antes de fijar sus versione
 - [SDK OpenAI 1.109.1 y HTTPX](https://github.com/openai/openai-python/blob/v1.109.1/README.md)
 - [Almacén nativo de certificados](https://truststore.readthedocs.io/en/latest/)
   y [keyring](https://pypi.org/project/keyring/)
-- [Mermaid CLI: dependencias](https://github.com/mermaid-js/mermaid-cli/blob/master/package.json)
+- [mermaidx: API y dependencias](https://pypi.org/project/mermaidx/0.11.3/)
 - [Funcionamiento de PyInstaller](https://pyinstaller.org/en/stable/operating-mode.html)

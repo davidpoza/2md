@@ -5,7 +5,7 @@ import pytest
 from PIL import Image
 
 from twomd.cache import output_hashes
-from twomd.review import accept_diagram, picture_references
+from twomd.review import accept_diagram, picture_references, stored_diagram
 
 
 @pytest.fixture
@@ -37,6 +37,45 @@ def test_accept_preserves_original_and_updates_report(output):
     assert report["diagramas_convertidos"] == 1
     assert report["modelo_ia"] == "modelo"
     assert report["archivos"] == output_hashes(output.parent, output)
+
+
+def test_accepted_diagram_can_be_loaded_and_updated_without_duplicates(output):
+    original = "flowchart LR\nA-->B"
+    updated = "flowchart LR\nA-->C"
+    path = accept_diagram(output, picture_references(output)[0], original)
+    reference = picture_references(output)[0]
+    saved = stored_diagram(output, reference)
+    assert saved.code == original
+    assert not saved.pending
+    accept_diagram(output, reference, updated)
+    text = output.read_text(encoding="utf-8")
+    assert text.count("```mermaid") == 1
+    assert original not in text
+    assert path.read_text(encoding="utf-8").strip() == updated
+    report = json.loads((output.parent / "conversion-report.json").read_text(encoding="utf-8"))
+    assert report["diagramas"] == report["diagramas_convertidos"] == 1
+    assert report["diagramas_pendientes_revision"] == 0
+    assert report["archivos"] == output_hashes(output.parent, output)
+
+
+def test_updating_accepted_diagram_rolls_back_after_report_failure(output, monkeypatch):
+    from twomd import review
+
+    original = "flowchart LR\nA-->B"
+    path = accept_diagram(output, picture_references(output)[0], original)
+    text = output.read_text(encoding="utf-8")
+    write = review._atomic_write
+
+    def fail_report(path, content):
+        if path.name == "conversion-report.json":
+            raise OSError("error simulado")
+        write(path, content)
+
+    monkeypatch.setattr(review, "_atomic_write", fail_report)
+    with pytest.raises(RuntimeError, match="restauró"):
+        accept_diagram(output, picture_references(output)[0], "flowchart LR\nA-->C")
+    assert output.read_text(encoding="utf-8") == text
+    assert path.read_text(encoding="utf-8").strip() == original
 
 
 def test_review_rejects_stale_or_repeated_reference(output):

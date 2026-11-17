@@ -1,7 +1,20 @@
 """Vista ampliada de diagramas renderizados."""
 
+from functools import lru_cache
+from importlib.util import find_spec
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QKeySequence, QPainter, QPixmap, QResizeEvent, QShortcut, QWheelEvent
+from PySide6.QtGui import (
+    QFontDatabase,
+    QKeySequence,
+    QPainter,
+    QResizeEvent,
+    QShortcut,
+    QWheelEvent,
+)
+from PySide6.QtSvg import QSvgRenderer
+from PySide6.QtSvgWidgets import QGraphicsSvgItem
 from PySide6.QtWidgets import (
     QDialog,
     QGraphicsScene,
@@ -14,14 +27,34 @@ from PySide6.QtWidgets import (
 )
 
 
+@lru_cache(maxsize=1)
+def load_diagram_fonts() -> None:
+    package = find_spec("mermaidx")
+    if package is None or package.origin is None:
+        raise RuntimeError("No se encuentran las fuentes del renderizador Mermaid.")
+    fonts = Path(package.origin).parent / "assets" / "fonts"
+    for name in ("DejaVuSans.ttf", "DejaVuSans-Bold.ttf"):
+        if QFontDatabase.addApplicationFont(str(fonts / name)) == -1:
+            raise RuntimeError("No se pudieron cargar las fuentes del renderizador Mermaid.")
+
+
 class ImageView(QGraphicsView):
     zoom_changed = Signal(float)
 
-    def __init__(self, pixmap: QPixmap, parent: QWidget) -> None:
+    def __init__(self, svg: bytes, parent: QWidget) -> None:
         super().__init__(parent)
+        load_diagram_fonts()
         scene = QGraphicsScene(self)
-        scene.addPixmap(pixmap)
+        self.renderer = QSvgRenderer(svg, self)
+        if not self.renderer.isValid():
+            raise ValueError("La previsualización SVG no es válida.")
+        image = QGraphicsSvgItem()
+        image.setSharedRenderer(self.renderer)
+        image.setCacheMode(QGraphicsSvgItem.CacheMode.NoCache)
+        scene.addItem(image)
         self.setScene(scene)
+        self.setBackgroundBrush(Qt.GlobalColor.white)
+        self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
@@ -60,14 +93,14 @@ class ImageView(QGraphicsView):
 
 
 class ImagePreviewDialog(QDialog):
-    def __init__(self, pixmap: QPixmap, parent: QWidget) -> None:
+    def __init__(self, svg: bytes, parent: QWidget) -> None:
         super().__init__(parent)
         self.setWindowTitle("Previsualización Mermaid")
         self.setModal(True)
         layout = QVBoxLayout(self)
         toolbar = QHBoxLayout()
         self.zoom_label = QLabel()
-        self.view = ImageView(pixmap, self)
+        self.view = ImageView(svg, self)
         self.view.zoom_changed.connect(
             lambda scale: self.zoom_label.setText(f"{scale * 100:.0f} %")
         )

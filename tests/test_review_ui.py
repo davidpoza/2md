@@ -11,6 +11,12 @@ from twomd.diagrams import DiagramProposal
 from twomd.review import accept_diagram, picture_references
 from twomd.ui.review_dialog import ReviewDialog
 
+_SVG = (
+    b'<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600">'
+    b'<rect width="800" height="600" fill="white"/>'
+    b'<text x="20" y="40">Diagrama</text></svg>'
+)
+
 
 def test_review_requires_validation_again_after_edit(tmp_path, qtbot, monkeypatch):
     from twomd.ui import review_dialog
@@ -24,7 +30,7 @@ def test_review_requires_validation_again_after_edit(tmp_path, qtbot, monkeypatc
     (tmp_path / "conversion-report.json").write_text(
         json.dumps({"diagramas": 0, "diagramas_convertidos": 0}), encoding="utf-8"
     )
-    monkeypatch.setattr(review_dialog, "render_mermaid", lambda code: image.read_bytes())
+    monkeypatch.setattr(review_dialog, "render_mermaid", lambda code: _SVG)
     dialog = ReviewDialog(markdown, Settings(), None)
     qtbot.addWidget(dialog)
     dialog.show()
@@ -63,7 +69,7 @@ def test_review_loads_and_accepts_automatic_proposal(tmp_path, qtbot, monkeypatc
     report = tmp_path / "conversion-report.json"
     report.write_text(json.dumps({"diagramas": 0, "diagramas_convertidos": 0}), encoding="utf-8")
     accept_diagram(markdown, picture_references(markdown)[0], "flowchart LR\nA-->B", pending=True)
-    monkeypatch.setattr(review_dialog, "render_mermaid", lambda code: image.read_bytes())
+    monkeypatch.setattr(review_dialog, "render_mermaid", lambda code: _SVG)
     dialog = ReviewDialog(markdown, Settings(), None)
     qtbot.addWidget(dialog)
     dialog.show()
@@ -128,7 +134,7 @@ def test_review_loading_overlay_covers_work_and_clears_after_completion(
             raise RuntimeError("La prueba no liberó el renderizado.")
         if fails:
             raise RuntimeError("Error de renderizado simulado.")
-        return image.read_bytes()
+        return _SVG
 
     monkeypatch.setattr(review_dialog, "render_mermaid", render)
     dialog = ReviewDialog(markdown, Settings(), None)
@@ -150,3 +156,89 @@ def test_review_loading_overlay_covers_work_and_clears_after_completion(
     assert dialog.editor.isEnabled()
     if fails:
         assert "Error de renderizado simulado" in dialog.message.text()
+
+
+@pytest.fixture
+def review_with_two_images(tmp_path, qtbot, monkeypatch):
+    from twomd.ui import review_dialog
+
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    for name in ("first.png", "second.png"):
+        Image.new("RGB", (4, 4), "white").save(assets / name)
+    markdown = tmp_path / "documento.md"
+    markdown.write_text(
+        "![primera](assets/first.png)\n\n![segunda](assets/second.png)\n", encoding="utf-8"
+    )
+    (tmp_path / "conversion-report.json").write_text(
+        json.dumps({"diagramas": 0, "diagramas_convertidos": 0}), encoding="utf-8"
+    )
+    monkeypatch.setattr(review_dialog, "render_mermaid", lambda code: _SVG)
+    dialog = ReviewDialog(markdown, Settings(), None)
+    qtbot.addWidget(dialog)
+    dialog.show()
+    return dialog
+
+
+def test_navigation_preserves_separate_drafts_and_preview(review_with_two_images, qtbot):
+    dialog = review_with_two_images
+    first_code = "flowchart LR\nA-->B"
+    second_code = "sequenceDiagram\nAlice->>Bob: Hola"
+    dialog.editor.setPlainText(first_code)
+    dialog.proposal_model = "modelo-primero"
+    dialog.validate_code()
+    qtbot.waitUntil(lambda: dialog.worker is None, timeout=10000)
+    assert dialog.preview_svg == _SVG
+    dialog.pictures.setCurrentRow(1)
+    assert dialog.editor.toPlainText() == ""
+    assert dialog.preview_svg is None
+    dialog.editor.setPlainText(second_code)
+    dialog.pictures.setCurrentRow(0)
+    assert dialog.editor.toPlainText() == first_code
+    assert dialog.validated_code == first_code
+    assert dialog.proposal_model == "modelo-primero"
+    assert dialog.preview_svg == _SVG
+    assert not dialog.preview.pixmap().isNull()
+    assert dialog.fullscreen_button.isEnabled()
+    assert dialog.accept_button.isEnabled()
+    dialog.pictures.setCurrentRow(1)
+    assert dialog.editor.toPlainText() == second_code
+    assert dialog.validated_code is None
+    assert dialog.preview_svg is None
+    assert not dialog.accept_button.isEnabled()
+
+
+def test_accepted_state_and_preview_survive_navigation_and_edits(review_with_two_images, qtbot):
+    dialog = review_with_two_images
+    code = "flowchart LR\nA-->B"
+    dialog.editor.setPlainText(code)
+    dialog.validate_code()
+    qtbot.waitUntil(lambda: dialog.worker is None, timeout=10000)
+    dialog.save_diagram()
+    qtbot.waitUntil(lambda: dialog.worker is None, timeout=10000)
+    assert dialog.preview_svg == _SVG
+    assert not dialog.pictures.item(0).icon().isNull()
+    assert not dialog.accept_button.isEnabled()
+    dialog.pictures.setCurrentRow(1)
+    assert dialog.pictures.item(1).icon().isNull()
+    dialog.pictures.setCurrentRow(0)
+    assert dialog.editor.toPlainText() == code
+    assert dialog.preview_svg == _SVG
+    assert not dialog.pictures.item(0).icon().isNull()
+    dialog.editor.appendPlainText("B-->C")
+    assert dialog.pictures.item(0).icon().isNull()
+    assert dialog.preview_svg is None
+    dialog.pictures.setCurrentRow(1)
+    dialog.pictures.setCurrentRow(0)
+    assert "B-->C" in dialog.editor.toPlainText()
+    assert not dialog.accept_button.isEnabled()
+    dialog.validate_code()
+    qtbot.waitUntil(lambda: dialog.worker is None, timeout=10000)
+    dialog.save_diagram()
+    qtbot.waitUntil(lambda: dialog.worker is None, timeout=10000)
+    assert not dialog.pictures.item(0).icon().isNull()
+    assert dialog.markdown.read_text(encoding="utf-8").count("```mermaid") == 1
+    reopened = ReviewDialog(dialog.markdown, Settings(), None)
+    qtbot.addWidget(reopened)
+    assert reopened.editor.toPlainText() == dialog.editor.toPlainText()
+    assert not reopened.pictures.item(0).icon().isNull()

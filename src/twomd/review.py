@@ -25,6 +25,12 @@ class PictureReference:
     end: int
 
 
+@dataclass(frozen=True)
+class StoredDiagram:
+    code: str
+    pending: bool
+
+
 def picture_references(markdown: Path) -> list[PictureReference]:
     text = markdown.read_text(encoding="utf-8")
     root = markdown.parent.resolve()
@@ -86,7 +92,7 @@ def _pending_block(index: int, code: str) -> str:
     )
 
 
-def pending_diagram(markdown: Path, reference: PictureReference) -> str | None:
+def stored_diagram(markdown: Path, reference: PictureReference) -> StoredDiagram | None:
     text = markdown.read_text(encoding="utf-8")
     references = picture_references(markdown)
     if reference.index > len(references) or references[reference.index - 1] != reference:
@@ -98,8 +104,15 @@ def pending_diagram(markdown: Path, reference: PictureReference) -> str | None:
         return None
     code = path.read_text(encoding="utf-8").strip()
     if code and text[reference.end :].startswith(_pending_block(reference.index, code)):
-        return code
+        return StoredDiagram(code, pending=True)
+    if code and text[reference.end :].startswith(f"\n\n```mermaid\n{code}\n```"):
+        return StoredDiagram(code, pending=False)
     return None
+
+
+def pending_diagram(markdown: Path, reference: PictureReference) -> str | None:
+    diagram = stored_diagram(markdown, reference)
+    return diagram.code if diagram is not None and diagram.pending else None
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -145,12 +158,18 @@ def accept_diagram(
     if not diagrams.resolve().is_relative_to(markdown.parent.resolve()):
         raise ValueError("La carpeta de diagramas está fuera de la salida.")
     diagram_path = diagrams / f"diagram-{reference.index:03d}.mmd"
-    previous = pending_diagram(markdown, reference)
+    previous = stored_diagram(markdown, reference)
     if diagram_path.exists() and (pending or previous is None):
         raise FileExistsError("Ya existe un diagrama para esta imagen; no se sobrescribirá.")
 
     insertion = _pending_block(reference.index, code) if pending else f"\n\n```mermaid\n{code}\n```"
-    old_block = _pending_block(reference.index, previous) if previous is not None else ""
+    old_block = ""
+    if previous is not None:
+        old_block = (
+            _pending_block(reference.index, previous.code)
+            if previous.pending
+            else f"\n\n```mermaid\n{previous.code}\n```"
+        )
     updated = text[: reference.end] + insertion + text[reference.end + len(old_block) :]
     if previous is None:
         with diagram_path.open("x", encoding="utf-8", newline="\n") as file:
@@ -164,7 +183,7 @@ def accept_diagram(
             report["diagramas_convertidos"] = int(report["diagramas_convertidos"]) + 1
         report["diagramas_pendientes_revision"] = int(
             report.get("diagramas_pendientes_revision", 0)
-        ) + (1 if pending else -1 if previous is not None else 0)
+        ) + (1 if pending else -1 if previous is not None and previous.pending else 0)
         if model:
             report["modelo_ia"] = model
         report["archivos"] = output_hashes(markdown.parent, markdown)
@@ -175,7 +194,7 @@ def accept_diagram(
             if previous is None:
                 diagram_path.unlink(missing_ok=True)
             else:
-                _atomic_write(diagram_path, previous + "\n")
+                _atomic_write(diagram_path, previous.code + "\n")
         except OSError as rollback_error:
             raise RuntimeError(
                 "La revisión falló y no pudo restaurarse completamente; "

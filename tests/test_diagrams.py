@@ -141,7 +141,11 @@ def test_automatic_diagrams_insert_reviewable_results_and_report_failures(tmp_pa
         return DiagramProposal(categoria="flujo", fiable=True, mermaid="flowchart LR\nA-->B")
 
     monkeypatch.setattr(automatic_diagrams, "propose_diagram", propose)
-    monkeypatch.setattr(automatic_diagrams, "render_mermaid", lambda code: b"PNG")
+    monkeypatch.setattr(
+        automatic_diagrams,
+        "render_mermaid",
+        lambda code: b'<svg xmlns="http://www.w3.org/2000/svg"/>',
+    )
     settings = Settings(
         ai=AISettings(enabled=True, base_url="https://example.com/v1", model="vision")
     )

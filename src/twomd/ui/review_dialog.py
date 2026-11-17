@@ -3,7 +3,8 @@ from itertools import count
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal, Slot
-from PySide6.QtGui import QCloseEvent, QPixmap, QResizeEvent
+from PySide6.QtGui import QCloseEvent, QColor, QIcon, QPainter, QPen, QPixmap, QResizeEvent
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -22,14 +23,29 @@ from twomd.config import Settings
 from twomd.credentials import get_secret
 from twomd.diagrams import DiagramProposal, propose_diagram
 from twomd.mermaid import render_mermaid
-from twomd.review import PictureReference, accept_diagram, pending_diagram, picture_references
-from twomd.ui.image_preview import ImagePreviewDialog
+from twomd.review import PictureReference, accept_diagram, picture_references, stored_diagram
+from twomd.ui.image_preview import ImagePreviewDialog, load_diagram_fonts
 
 
 @dataclass(frozen=True)
 class SavedDiagram:
     path: Path
     references: list[PictureReference]
+
+
+@dataclass
+class DiagramState:
+    code: str = ""
+    validated_code: str | None = None
+    proposal_model: str | None = None
+    preview_svg: bytes | None = None
+    preview_pixmap: QPixmap | None = None
+    accepted_code: str | None = None
+    message: str = "Genera una propuesta o introduce Mermaid manualmente."
+
+    @property
+    def accepted(self) -> bool:
+        return self.accepted_code is not None and self.code.strip() == self.accepted_code
 
 
 class ReviewSignals(QObject):
@@ -66,8 +82,20 @@ class ReviewDialog(QDialog):
         self.worker: ReviewWorker | None = None
         self.validated_code: str | None = None
         self.proposal_model: str | None = None
-        self.preview_pixmap: QPixmap | None = None
+        self.preview_svg: bytes | None = None
         self.preview_viewer: ImagePreviewDialog | None = None
+        self.diagram_states: dict[int, DiagramState] = {}
+        self.current_index: int | None = None
+        self.accepted_code: str | None = None
+        check = QPixmap(24, 24)
+        check.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(check)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor("#16803c"), 3))
+        painter.drawLine(4, 12, 10, 18)
+        painter.drawLine(10, 18, 21, 5)
+        painter.end()
+        self.accepted_icon = QIcon(check)
         self.setWindowTitle("Revisión de imágenes y diagramas")
         self.resize(1000, 700)
         layout = QVBoxLayout(self)
@@ -79,6 +107,19 @@ class ReviewDialog(QDialog):
         self.pictures = QListWidget()
         for reference in self.references:
             self.pictures.addItem(f"Imagen {reference.index}: {reference.image.name}")
+            diagram = stored_diagram(markdown, reference)
+            if diagram is not None:
+                self.diagram_states[reference.index] = DiagramState(
+                    code=diagram.code,
+                    accepted_code=None if diagram.pending else diagram.code,
+                    message=(
+                        "Propuesta automática pendiente de revisión. "
+                        "Valídala y compárala con la imagen."
+                        if diagram.pending
+                        else "Diagrama aceptado. Valídalo para cargar la previsualización."
+                    ),
+                )
+                self.update_picture_status(reference.index)
         layout.addWidget(self.pictures)
         comparison = QHBoxLayout()
         self.original = QLabel("Original")
@@ -148,8 +189,9 @@ class ReviewDialog(QDialog):
             ready
             and self.validated_code is not None
             and self.validated_code == self.editor.toPlainText()
+            and self.editor.toPlainText().strip() != self.accepted_code
         )
-        self.fullscreen_button.setEnabled(ready and self.preview_pixmap is not None)
+        self.fullscreen_button.setEnabled(ready and self.preview_svg is not None)
         self.close_button.setEnabled(self.worker is None)
         if self.worker is not None:
             self.loading_message.setText(self.message.text())
@@ -161,14 +203,56 @@ class ReviewDialog(QDialog):
 
     def invalidate(self) -> None:
         self.validated_code = None
-        self.preview_pixmap = None
+        self.preview_svg = None
         self.preview.clear()
+        if (
+            self.accepted_code is not None
+            and self.editor.toPlainText().strip() != self.accepted_code
+        ):
+            self.message.setText("Diagrama modificado. Vuelve a validarlo y aceptarlo.")
+        self.remember_picture()
         self.update_buttons()
 
+    def remember_picture(self) -> None:
+        if self.current_index is None:
+            return
+        self.diagram_states[self.current_index] = DiagramState(
+            code=self.editor.toPlainText(),
+            validated_code=self.validated_code,
+            proposal_model=self.proposal_model,
+            preview_svg=self.preview_svg,
+            preview_pixmap=self.preview.pixmap() if self.preview_svg is not None else None,
+            accepted_code=self.accepted_code,
+            message=self.message.text(),
+        )
+        self.update_picture_status(self.current_index)
+
+    def update_picture_status(self, index: int) -> None:
+        state = self.diagram_states[index]
+        item = self.pictures.item(index - 1)
+        item.setIcon(self.accepted_icon if state.accepted else QIcon())
+        item.setToolTip("Diagrama aceptado" if state.accepted else "Pendiente de aceptación")
+
     def select_picture(self) -> None:
-        self.editor.clear()
-        self.proposal_model = None
+        self.remember_picture()
         reference = self.current_reference()
+        self.current_index = reference.index if reference is not None else None
+        state = (
+            self.diagram_states.get(reference.index, DiagramState())
+            if reference
+            else DiagramState()
+        )
+        self.editor.blockSignals(True)
+        self.editor.setPlainText(state.code)
+        self.editor.blockSignals(False)
+        self.validated_code = state.validated_code
+        self.proposal_model = state.proposal_model
+        self.preview_svg = state.preview_svg
+        self.accepted_code = state.accepted_code
+        self.preview.clear()
+        if state.preview_pixmap is not None:
+            self.preview.setPixmap(state.preview_pixmap)
+        self.message.setText(state.message)
         self.original.clear()
         if reference:
             pixmap = QPixmap(str(reference.image))
@@ -180,19 +264,6 @@ class ReviewDialog(QDialog):
                     Qt.TransformationMode.SmoothTransformation,
                 )
             )
-            try:
-                pending = pending_diagram(self.markdown, reference)
-            except (OSError, ValueError):
-                self.message.setText("No se pudo leer el diagrama pendiente.")
-                self.update_buttons()
-                return
-            if pending is not None:
-                self.editor.setPlainText(pending)
-                self.message.setText(
-                    "Propuesta automática pendiente de revisión. Valídala y compárala con la imagen."
-                )
-            else:
-                self.message.setText("Genera una propuesta o introduce Mermaid manualmente.")
         self.update_buttons()
 
     def start_worker(self, operation, callback, network_error: bool = False) -> None:
@@ -273,17 +344,22 @@ class ReviewDialog(QDialog):
         if error:
             self.message.setText(error)
         elif isinstance(result, bytes):
-            pixmap = QPixmap()
-            if pixmap.loadFromData(result, "PNG"):
-                self.preview.setPixmap(
-                    pixmap.scaled(
-                        400,
-                        260,
-                        Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.SmoothTransformation,
-                    )
-                )
-                self.preview_pixmap = pixmap
+            try:
+                load_diagram_fonts()
+            except RuntimeError as font_error:
+                self.message.setText(str(font_error))
+                self.update_buttons()
+                return
+            renderer = QSvgRenderer(result)
+            if renderer.isValid():
+                size = renderer.defaultSize().scaled(400, 260, Qt.AspectRatioMode.KeepAspectRatio)
+                pixmap = QPixmap(size)
+                pixmap.fill(Qt.GlobalColor.white)
+                painter = QPainter(pixmap)
+                renderer.render(painter)
+                painter.end()
+                self.preview.setPixmap(pixmap)
+                self.preview_svg = result
                 self.validated_code = code
                 self.message.setText("Validación correcta. Compara el resultado antes de aceptar.")
             else:
@@ -317,14 +393,16 @@ class ReviewDialog(QDialog):
         self.message.setText(
             f"Diagrama guardado: {result.path.name}. Se conserva la imagen original."
         )
-        self.invalidate()
+        self.accepted_code = self.editor.toPlainText().strip()
+        self.remember_picture()
+        self.update_buttons()
 
     def open_preview(self) -> None:
-        if self.preview_pixmap is None or self.worker is not None:
+        if self.preview_svg is None or self.worker is not None:
             return
         if self.preview_viewer is not None:
             self.preview_viewer.deleteLater()
-        self.preview_viewer = ImagePreviewDialog(self.preview_pixmap, self)
+        self.preview_viewer = ImagePreviewDialog(self.preview_svg, self)
         self.preview_viewer.showFullScreen()
 
     def resizeEvent(self, event: QResizeEvent) -> None:

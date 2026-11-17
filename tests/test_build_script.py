@@ -25,11 +25,6 @@ def build_project(tmp_path):
         "resources/models/docling-project--docling-models/README.md",
         "resources/models/docling-project--docling-models/model_artifacts/tableformer/accurate/tm_config.json",
         "resources/models/docling-project--docling-models/model_artifacts/tableformer/accurate/tableformer_accurate.safetensors",
-        "tools/mermaid/render.mjs",
-        "tools/mermaid/runtime/node.exe",
-        "tools/mermaid/node_modules/@mermaid-js/mermaid-cli/package.json",
-        "tools/mermaid/browser/chrome-headless-shell.exe",
-        "build/mermaid-runtime.zip",
     ):
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -49,7 +44,7 @@ def _run_build(root):
         "function uv { ConvertTo-Json -InputObject @($args) -Compress | "
         "Add-Content -LiteralPath $env:TWOMD_TEST_LOG -Encoding UTF8; "
         "$global:LASTEXITCODE = 0 }; "
-        "& $env:TWOMD_TEST_SCRIPT -ReuseMermaid -OutputDirectory $env:TWOMD_TEST_OUTPUT"
+        "& $env:TWOMD_TEST_SCRIPT -OutputDirectory $env:TWOMD_TEST_OUTPUT"
     )
     result = subprocess.run(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
@@ -76,8 +71,10 @@ def test_build_only_uses_portable_spec(build_project):
     assert str(build_project / "output") in call
 
 
-def test_missing_reused_archive_fails(build_project):
-    (build_project / "build" / "mermaid-runtime.zip").unlink()
+def test_missing_docling_model_fails(build_project):
+    (
+        build_project / "resources/models/docling-project--docling-layout-heron/model.safetensors"
+    ).unlink()
     result, calls = _run_build(build_project)
     assert result.returncode != 0
     assert not calls
@@ -89,11 +86,24 @@ def test_portable_spec_shares_resources_and_separates_entrypoints(build_project,
     original = Path(__file__).resolve().parents[1] / "scripts" / "portable.spec"
     spec = build_project / "scripts" / "portable.spec"
     shutil.copy(original, spec)
-    monkeypatch.setattr(hooks, "collect_all", lambda package: ([], [], []))
     monkeypatch.setattr(hooks, "copy_metadata", lambda package: [])
+    delvewheel = []
+
+    def collect_dlls(package, *, datas, binaries):
+        delvewheel.append(package)
+        return datas, binaries
+
+    monkeypatch.setattr(hooks, "collect_delvewheel_libs_directory", collect_dlls)
     gui = build_project / "scripts" / "entrypoint.py"
     mcp = build_project / "scripts" / "mcp_entrypoint.py"
     calls = []
+    collected = []
+
+    def collect(package):
+        collected.append(package)
+        return [], [], []
+
+    monkeypatch.setattr(hooks, "collect_all", collect)
 
     class FakeAnalysis:
         def __init__(self, scripts, **kwargs):
@@ -129,7 +139,10 @@ def test_portable_spec_shares_resources_and_separates_entrypoints(build_project,
     assert [item[0] for item in calls[0][1]] == ["hook", "gui"]
     assert [item[0] for item in calls[1][1]] == ["hook", "mcp"]
     assert result["bundle"][0][:2] == ("2MD", "2MD-MCP")
+    assert {"mermaidx", "novasvg", "quickjs"} <= set(collected)
+    assert delvewheel == ["novasvg"]
     sources = [entry[0] for entry in result["analysis"].datas]
+    assert not any("mermaid-runtime" in source for source in sources)
     assert any("tableformer\\accurate" in source for source in sources)
     assert not any("heron-onnx" in source or "tableformer\\fast" in source for source in sources)
     assert any(

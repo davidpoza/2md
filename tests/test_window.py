@@ -83,7 +83,11 @@ def test_automatic_diagrams_run_after_conversion(qtbot, tmp_path, monkeypatch):
         return DiagramProposal(categoria="flujo", fiable=True, mermaid="flowchart LR\nA-->B")
 
     monkeypatch.setattr(automatic_diagrams, "propose_diagram", propose)
-    monkeypatch.setattr(automatic_diagrams, "render_mermaid", lambda code: b"PNG")
+    monkeypatch.setattr(
+        automatic_diagrams,
+        "render_mermaid",
+        lambda code: b'<svg xmlns="http://www.w3.org/2000/svg"/>',
+    )
     settings = Settings(
         output_directory=str(tmp_path),
         ai=AISettings(enabled=True, base_url="https://example.com/v1", model="vision"),

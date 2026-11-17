@@ -1,6 +1,11 @@
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, collect_data_files, copy_metadata
+from PyInstaller.utils.hooks import (
+    collect_all,
+    collect_data_files,
+    collect_delvewheel_libs_directory,
+    copy_metadata,
+)
 
 root = Path(SPECPATH).parent
 models = root / "resources" / "models"
@@ -9,7 +14,7 @@ tables = models / "docling-project--docling-models"
 layout_destination = r"twomd\resources\models\docling-project--docling-layout-heron"
 table_destination = r"twomd\resources\models\docling-project--docling-models"
 
-datas = [(str(root / "build" / "mermaid-runtime.zip"), r"twomd\resources")]
+datas = []
 for filename in (
     "config.json",
     "preprocessor_config.json",
@@ -43,11 +48,15 @@ for package in (
     "win32ctypes",
     "mcp",
     "mcp_types",
+    "mermaidx",
+    "novasvg",
+    "quickjs",
 ):
     package_datas, package_binaries, package_imports = collect_all(package)
     datas.extend(package_datas)
     binaries.extend(package_binaries)
     hiddenimports.extend(package_imports)
+datas, binaries = collect_delvewheel_libs_directory("novasvg", datas=datas, binaries=binaries)
 
 gui_script = root / "scripts" / "entrypoint.py"
 mcp_script = root / "scripts" / "mcp_entrypoint.py"
