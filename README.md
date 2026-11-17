@@ -2,7 +2,112 @@
 
 Aplicación de escritorio para convertir documentos empresariales a Markdown.
 
-## Estado: implementación parcial
+## Implementación Node / Electron
+
+La aplicación principal se ha reimplementado en **Node.js y Electron**, con
+`@xberg-io/xberg` para extraer PDF/DOCX y la librería oficial `mermaid` para
+validar y renderizar diagramas localmente. La lógica funcional vigente está en
+[`docs/logic.md`](docs/logic.md).
+
+La nueva implementación está en `app`. Conserva selección temporal de archivos,
+carpetas sin recursión, arrastrar y soltar, deduplicación, destino configurable,
+concurrencia, cancelación cooperativa y reintentos. Mantiene Markdown con imágenes
+en `assets`, informes, comprobación de integridad para reutilizar resultados y
+rechazo de salidas existentes no reutilizables. Los resultados Python anteriores
+no se sobrescriben ni se reutilizan automáticamente: la versión del motor,
+aplicación y configuración forma parte de la nueva identidad de salida.
+
+La IA y MCP siguen desactivados por defecto. El análisis automático exige
+consentimiento por lote; las propuestas fiables y válidas quedan pendientes de
+revisión. La revisión manual permite editar, validar y comparar original y SVG
+con zoom, antes de aceptar explícitamente. Editar invalida la validación. Mermaid
+se ejecuta en una ventana aislada, sin Node ni acceso remoto, con un límite de
+180 segundos. No se admiten HTML ni directivas que alteren la configuración.
+
+Las preferencias conservan el esquema de `%APPDATA%\2MD\settings.json`.
+Las credenciales se almacenan en Windows Credential Manager mediante
+`@napi-rs/keyring`, con los destinos `2MD/api` y `2MD/proxy`; nunca en JSON.
+La red admite acceso directo, proxy de sistema/entorno o manual con autenticación
+Basic y exclusiones por host/IP. Se emplean certificados del sistema o el archivo
+CA elegido, sin desactivar TLS. NTLM y Kerberos no están implementados.
+
+### Desarrollo Node
+
+Requiere Windows x64 y **Node.js 22.19 o posterior** (recomendado Node 24).
+
+```powershell
+npm ci
+npm start
+```
+
+`npm start` abre la aplicación. `npm run mcp` inicia únicamente el servidor
+stdio con Node; se debe activar MCP y configurar sus carpetas previamente.
+No se descargan modelos OCR ni recursos Mermaid durante la conversión.
+
+Las pruebas Node están en `tests-node`; se ejecutan con `npm test` en un entorno
+autorizado. Esta migración no ha ejecutado tests, builds ni aplicaciones gráficas
+en el entorno de trabajo: la revisión sintáctica no demuestra paridad funcional.
+Es necesario verificar extracción con documentos representativos, renderizado,
+almacén de credenciales, redes corporativas y los dos ejecutables en Windows limpio.
+
+### Distribución portable Node
+
+```powershell
+.\scripts\build.ps1
+# O selecciona una salida nueva:
+.\scripts\build.ps1 -OutputDirectory dist-node-nueva
+```
+
+El script instala desde `package-lock.json` y empaqueta con electron-builder.
+Genera `dist-node\2MD\2MD.exe` y `dist-node\2MD\2MD-MCP.exe`, con dependencias
+compartidas. **Copia la carpeta completa**; no son ejecutables independientes
+de sus recursos. No requiere Python, Qt ni Node instalado en el equipo destino.
+No sobrescribe una distribución existente.
+
+`2MD-MCP.exe` es un pequeño lanzador de consola generado con el compilador .NET
+incluido en Windows PowerShell. Ejecuta el Node integrado en Electron y conecta
+los tres streams sin añadir mensajes a stdout. La aplicación y la conversión
+son JavaScript; el lanzador solo adapta el arranque stdio en Windows.
+El portable aún no ha sido generado ni verificado.
+
+### MCP Node: documentos e imágenes
+
+Activa MCP en **Configuración**, selecciona el directorio permitido y un destino.
+El cliente inicia `2MD-MCP.exe` por stdio:
+
+```json
+{
+  "mcpServers": {
+    "2md": {
+      "command": "C:\\ruta\\2MD\\2MD-MCP.exe",
+      "timeout": 600
+    }
+  }
+}
+```
+
+`leer_documento` recibe `ruta`, relativa al directorio permitido o absoluta
+dentro de él. Resuelve rutas reales para rechazar escapes por `..`, enlaces o
+directorios hermanos. Lee la configuración vigente en cada operación.
+Devuelve `markdown`, `archivo_markdown`, `advertencias` e `imagenes`.
+El Markdown devuelto referencia imágenes mediante URI `2md://images/...`.
+Las imágenes también se anuncian como `resource_link` y se obtienen mediante
+`resources/read`, como contenido binario base64 con su MIME. No se limita a
+devolver rutas que el cliente no puede abrir. Los recursos pertenecen a la sesión
+stdio actual y se revocan si dejan de estar autorizados o cambia su integridad.
+El Markdown guardado en disco mantiene sus enlaces relativos a `assets`.
+
+El cliente debe soportar recursos MCP para leer las imágenes. Leer un recurso
+no concede permiso para enviarlo a un servicio remoto de IA. MCP nunca ejecuta
+IA ni OCR y se ejecuta con los permisos del usuario, no en un aislamiento del SO.
+
+## Implementación Python anterior (referencia histórica)
+
+Las secciones siguientes describen la versión anterior conservada en `src` y
+`tests`, no los comandos ni las dependencias de la aplicación Node vigente.
+El script `scripts\build.ps1` ahora empaqueta Node, no Python.
+
+### Estado anterior: implementación parcial
 
 La ventana permite seleccionar archivos DOCX y PDF, añadir los archivos de una carpeta
 sin recorrer subcarpetas, arrastrarlos y elegir una carpeta de destino. La selección
