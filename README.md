@@ -99,19 +99,33 @@ conversión. No se debe deshabilitar la validación de certificados para las des
 
 ### MCP local
 
-En Configuración → MCP se puede activar el servidor y seleccionar el directorio
-absoluto permitido. También hay que seleccionar una carpeta de destino en la
-ventana principal. El MCP se ejecuta por `stdio`, sin URL ni token y sin necesidad
-de abrir la interfaz. Cada solicitud comprueba la configuración vigente, resuelve
-la ruta y solo admite archivos PDF y DOCX dentro del directorio permitido.
+#### Preparar 2MD
 
-La herramienta `leer_documento` devuelve el Markdown, la ruta del archivo generado
-y las advertencias. Las imágenes y demás archivos se guardan en la carpeta de
-destino; el original no se modifica. No utiliza IA ni OCR. El proceso se ejecuta
-con los permisos del usuario: la restricción de directorio no sustituye los
-permisos del sistema ni constituye un aislamiento frente a otros procesos locales.
+1. Conserva completa la carpeta portable `dist\2MD`, incluidos `2MD-MCP.exe` y
+   `_internal`. Si aún no existe, genera la distribución con `.\scripts\build.ps1`.
+2. Abre `2MD.exe` y selecciona una carpeta de destino en la ventana principal.
+3. En **Configuración → MCP**, activa **MCP local por stdio**, selecciona el
+   directorio permitido y guarda. Después puedes cerrar 2MD.
 
-Ejemplo de configuración de OpenCode, ajustando la ruta a la carpeta portable:
+El cliente inicia `2MD-MCP.exe` cuando lo necesita, sin URL ni token. Cada
+solicitud comprueba la configuración vigente y solo admite PDF y DOCX del
+directorio permitido y sus subcarpetas.
+
+La herramienta `leer_documento` recibe `ruta`, absoluta o relativa al directorio
+permitido, y devuelve el Markdown, la ruta del archivo generado y las advertencias.
+Las imágenes y demás archivos se guardan en la carpeta de destino; el original no
+se modifica. El MCP no utiliza IA ni OCR.
+
+El proceso se ejecuta con los permisos del usuario: la restricción de directorio
+no sustituye los permisos del sistema ni constituye un aislamiento frente a
+otros procesos locales.
+
+#### OpenCode
+
+En el archivo `opencode.json` de la raíz del proyecto, añade esta configuración.
+Para todos los proyectos puedes utilizar `~\.config\opencode\opencode.json`.
+Sustituye la ruta por la ubicación real de `2MD-MCP.exe`; en JSON cada
+barra invertida de Windows debe escribirse como `\\`.
 
 ```json
 {
@@ -126,6 +140,36 @@ Ejemplo de configuración de OpenCode, ajustando la ruta a la carpeta portable:
   }
 }
 ```
+
+Si el archivo ya contiene configuración, añade el servidor `2md` al objeto
+`mcp.servers` existente sin borrar las demás opciones. Desde el proyecto, ejecuta
+`opencode mcp list` para comprobar el estado. Si no aparece, reinicia OpenCode.
+
+#### Roo Code
+
+En el panel MCP de Roo Code, activa los servidores MCP y selecciona
+**Edit Project MCP** para abrir o crear `.roo\mcp.json` en la raíz del proyecto.
+Para todos los proyectos, usa **Edit Global MCP** en su lugar. Añade:
+
+```json
+{
+  "mcpServers": {
+    "2md": {
+      "command": "C:\\ruta\\2MD\\2MD-MCP.exe",
+      "timeout": 600
+    }
+  }
+}
+```
+
+Sustituye la ruta por la ubicación real y conserva las demás opciones si el
+archivo ya existe. `timeout` permite hasta 600 segundos por solicitud; ajusta
+ese valor si tus documentos necesitan más tiempo. Comprueba en el panel MCP que
+aparecen `2md` y la herramienta `leer_documento`; si no, reconecta el servidor.
+
+En cualquiera de los dos clientes puedes pedir, por ejemplo: «Usa `leer_documento`
+para leer `manual.pdf`». La ruta relativa se busca en el directorio permitido,
+no en el directorio desde el que se ha lanzado el cliente.
 
 La integración MCP y la distribución portable aún deben verificarse con el
 ejecutable generado y un cliente real en Windows limpio.

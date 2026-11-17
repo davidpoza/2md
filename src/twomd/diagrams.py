@@ -2,6 +2,7 @@
 
 import base64
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
@@ -65,6 +66,9 @@ def propose_diagram(
     network: NetworkSettings,
     api_key: str,
     proxy_password: str | None,
+    *,
+    on_request: Callable[[], None] | None = None,
+    on_response: Callable[[int], None] | None = None,
 ) -> DiagramProposal:
     from openai import OpenAI
     from PIL import Image, UnidentifiedImageError
@@ -109,6 +113,12 @@ def propose_diagram(
             http_client=http_client,
         ) as client,
     ):
+        if on_request is not None:
+            http_client.event_hooks["request"].append(lambda request: on_request())
+        if on_response is not None:
+            http_client.event_hooks["response"].append(
+                lambda response: on_response(response.status_code)
+            )
         response = client.chat.completions.create(
             model=settings.model,
             messages=[

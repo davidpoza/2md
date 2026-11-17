@@ -1,7 +1,9 @@
+from dataclasses import dataclass
+from itertools import count
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal, Slot
-from PySide6.QtGui import QCloseEvent, QPixmap
+from PySide6.QtGui import QCloseEvent, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -9,6 +11,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QMessageBox,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -20,6 +23,13 @@ from twomd.credentials import get_secret
 from twomd.diagrams import DiagramProposal, propose_diagram
 from twomd.mermaid import render_mermaid
 from twomd.review import PictureReference, accept_diagram, pending_diagram, picture_references
+from twomd.ui.image_preview import ImagePreviewDialog
+
+
+@dataclass(frozen=True)
+class SavedDiagram:
+    path: Path
+    references: list[PictureReference]
 
 
 class ReviewSignals(QObject):
@@ -45,6 +55,8 @@ class ReviewWorker(QRunnable):
 
 
 class ReviewDialog(QDialog):
+    activity = Signal(str)
+
     def __init__(self, markdown: Path, settings: Settings, parent: QWidget) -> None:
         super().__init__(parent)
         self.markdown = markdown
@@ -54,6 +66,8 @@ class ReviewDialog(QDialog):
         self.worker: ReviewWorker | None = None
         self.validated_code: str | None = None
         self.proposal_model: str | None = None
+        self.preview_pixmap: QPixmap | None = None
+        self.preview_viewer: ImagePreviewDialog | None = None
         self.setWindowTitle("Revisión de imágenes y diagramas")
         self.resize(1000, 700)
         layout = QVBoxLayout(self)
@@ -74,6 +88,9 @@ class ReviewDialog(QDialog):
             image.setMinimumSize(250, 220)
             comparison.addWidget(image)
         layout.addLayout(comparison)
+        self.fullscreen_button = QPushButton("Ver previsualización a pantalla completa")
+        self.fullscreen_button.clicked.connect(self.open_preview)
+        layout.addWidget(self.fullscreen_button)
         self.message = QLabel("Selecciona una imagen.")
         self.message.setWordWrap(True)
         layout.addWidget(self.message)
@@ -92,6 +109,25 @@ class ReviewDialog(QDialog):
         for button in (self.generate, self.validate, self.accept_button, self.close_button):
             buttons.addWidget(button)
         layout.addLayout(buttons)
+        self.loading_overlay = QWidget(self)
+        self.loading_overlay.setObjectName("loadingOverlay")
+        self.loading_overlay.setStyleSheet(
+            "QWidget#loadingOverlay { background-color: rgba(20, 25, 35, 210); }"
+            "QLabel { color: white; font-size: 16px; background: transparent; }"
+        )
+        self.loading_overlay.setCursor(Qt.CursorShape.WaitCursor)
+        overlay_layout = QVBoxLayout(self.loading_overlay)
+        overlay_layout.addStretch()
+        self.loading_message = QLabel()
+        self.loading_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.loading_message.setWordWrap(True)
+        overlay_layout.addWidget(self.loading_message)
+        loading_bar = QProgressBar()
+        loading_bar.setRange(0, 0)
+        loading_bar.setMaximumWidth(320)
+        overlay_layout.addWidget(loading_bar, alignment=Qt.AlignmentFlag.AlignHCenter)
+        overlay_layout.addStretch()
+        self.loading_overlay.hide()
         self.editor.textChanged.connect(self.invalidate)
         self.pictures.currentRowChanged.connect(self.select_picture)
         if self.references:
@@ -113,9 +149,19 @@ class ReviewDialog(QDialog):
             and self.validated_code is not None
             and self.validated_code == self.editor.toPlainText()
         )
+        self.fullscreen_button.setEnabled(ready and self.preview_pixmap is not None)
+        self.close_button.setEnabled(self.worker is None)
+        if self.worker is not None:
+            self.loading_message.setText(self.message.text())
+            self.loading_overlay.setGeometry(self.rect())
+            self.loading_overlay.show()
+            self.loading_overlay.raise_()
+        else:
+            self.loading_overlay.hide()
 
     def invalidate(self) -> None:
         self.validated_code = None
+        self.preview_pixmap = None
         self.preview.clear()
         self.update_buttons()
 
@@ -150,6 +196,8 @@ class ReviewDialog(QDialog):
         self.update_buttons()
 
     def start_worker(self, operation, callback, network_error: bool = False) -> None:
+        if self.worker is not None:
+            return
         self.worker = ReviewWorker(operation, network_error)
         self.worker.signals.finished.connect(callback)
         self.update_buttons()
@@ -174,6 +222,10 @@ class ReviewDialog(QDialog):
             self.message.setText("No se pudieron leer las credenciales de Windows.")
             return
         self.message.setText("Analizando la imagen...")
+        self.activity.emit(
+            f"IA [{self.markdown.name}]: preparando revisión de imagen {reference.index}."
+        )
+        attempts = count(1)
         self.start_worker(
             lambda: propose_diagram(
                 reference.image,
@@ -182,6 +234,14 @@ class ReviewDialog(QDialog):
                 self.settings.network,
                 key,
                 password,
+                on_request=lambda: self.activity.emit(
+                    f"IA [{self.markdown.name}]: revisión de imagen {reference.index}, "
+                    f"solicitud, intento {next(attempts)}."
+                ),
+                on_response=lambda status: self.activity.emit(
+                    f"IA [{self.markdown.name}]: revisión de imagen {reference.index}, "
+                    f"respuesta HTTP {status}."
+                ),
             ),
             self.proposal_finished,
             network_error=True,
@@ -191,7 +251,9 @@ class ReviewDialog(QDialog):
         self.worker = None
         if error:
             self.message.setText(error)
+            self.activity.emit(f"IA [{self.markdown.name}]: error en la revisión. {error}")
         elif isinstance(result, DiagramProposal):
+            self.activity.emit(f"IA [{self.markdown.name}]: respuesta de revisión recibida.")
             self.message.setText(f"Clasificación: {result.categoria}. {result.motivo}")
             self.editor.setPlainText(result.mermaid if result.fiable and result.mermaid else "")
             self.proposal_model = self.settings.ai.model if result.fiable else None
@@ -221,6 +283,7 @@ class ReviewDialog(QDialog):
                         Qt.TransformationMode.SmoothTransformation,
                     )
                 )
+                self.preview_pixmap = pixmap
                 self.validated_code = code
                 self.message.setText("Validación correcta. Compara el resultado antes de aceptar.")
             else:
@@ -232,14 +295,42 @@ class ReviewDialog(QDialog):
         code = self.editor.toPlainText()
         if reference is None or self.validated_code != code:
             return
-        try:
-            path = accept_diagram(self.markdown, reference, code, self.proposal_model)
-            self.references = picture_references(self.markdown)
-        except (OSError, ValueError, RuntimeError, KeyError, TypeError) as error:
-            QMessageBox.critical(self, "Error de revisión", str(error))
+        self.message.setText("Guardando el diagrama y actualizando el informe...")
+        model = self.proposal_model
+
+        def save() -> SavedDiagram:
+            path = accept_diagram(self.markdown, reference, code, model)
+            return SavedDiagram(path, picture_references(self.markdown))
+
+        self.start_worker(save, self.save_finished)
+
+    def save_finished(self, result: object, error: str) -> None:
+        self.worker = None
+        self.update_buttons()
+        if error or not isinstance(result, SavedDiagram):
+            self.message.setText("No se pudo guardar el diagrama.")
+            QMessageBox.critical(
+                self, "Error de revisión", error or "El guardado no devolvió un resultado válido."
+            )
             return
-        self.message.setText(f"Diagrama guardado: {path.name}. Se conserva la imagen original.")
+        self.references = result.references
+        self.message.setText(
+            f"Diagrama guardado: {result.path.name}. Se conserva la imagen original."
+        )
         self.invalidate()
+
+    def open_preview(self) -> None:
+        if self.preview_pixmap is None or self.worker is not None:
+            return
+        if self.preview_viewer is not None:
+            self.preview_viewer.deleteLater()
+        self.preview_viewer = ImagePreviewDialog(self.preview_pixmap, self)
+        self.preview_viewer.showFullScreen()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "loading_overlay"):
+            self.loading_overlay.setGeometry(self.rect())
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self.worker is not None:

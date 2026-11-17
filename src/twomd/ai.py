@@ -3,6 +3,7 @@
 import base64
 import socket
 import ssl
+from collections.abc import Callable
 from io import BytesIO
 
 from twomd.config import AISettings, NetworkSettings
@@ -23,6 +24,9 @@ def check_connection(
     api_key: str,
     proxy_password: str | None,
     vision: bool,
+    *,
+    on_request: Callable[[], None] | None = None,
+    on_response: Callable[[int], None] | None = None,
 ) -> None:
     from openai import OpenAI
 
@@ -43,6 +47,12 @@ def check_connection(
             http_client=http_client,
         ) as client,
     ):
+        if on_request is not None:
+            http_client.event_hooks["request"].append(lambda request: on_request())
+        if on_response is not None:
+            http_client.event_hooks["response"].append(
+                lambda response: on_response(response.status_code)
+            )
         client.chat.completions.create(
             model=ai.model, messages=[{"role": "user", "content": content}]
         )

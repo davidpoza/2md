@@ -1,3 +1,4 @@
+import json
 import ssl
 
 import httpx
@@ -50,6 +51,42 @@ def test_tls_error_is_reported_without_raw_details():
     message = safe_error(error)
     assert "TLS" in message
     assert "secret" not in message
+
+
+def test_ai_connection_reports_each_http_attempt(monkeypatch):
+    from twomd import ai
+
+    requests = []
+    activity = []
+    statuses = []
+
+    def respond(request):
+        requests.append(request)
+        if len(requests) == 1:
+            return httpx.Response(500, headers={"retry-after": "0"})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "OK"}}]})
+
+    monkeypatch.setattr(
+        ai,
+        "create_http_client",
+        lambda settings, password: httpx.Client(transport=httpx.MockTransport(respond)),
+    )
+    settings = AISettings(
+        enabled=True, base_url="https://example.com/v1", model="vision", max_retries=1
+    )
+    ai.check_connection(
+        settings,
+        NetworkSettings(),
+        "clave",
+        None,
+        True,
+        on_request=lambda: activity.append("solicitud"),
+        on_response=statuses.append,
+    )
+    assert len(activity) == len(requests) == 2
+    assert statuses == [500, 200]
+    body = json.loads(requests[-1].content)
+    assert body["messages"][0]["content"][1]["type"] == "image_url"
 
 
 from twomd.ai import safe_error

@@ -4,6 +4,7 @@ import json
 import os
 import re
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -109,7 +110,14 @@ def _atomic_write(path: Path, content: str) -> None:
         ) as temporary:
             temporary_path = Path(temporary.name)
             temporary.write(content)
-        os.replace(temporary_path, path)
+        for attempt in range(5):
+            try:
+                os.replace(temporary_path, path)
+                break
+            except OSError as error:
+                if getattr(error, "winerror", None) not in (5, 32, 33) or attempt == 4:
+                    raise
+                time.sleep(0.1 * 2**attempt)
     finally:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)

@@ -1,6 +1,8 @@
 """Clasificación y generación opcional de diagramas pendientes de revisión."""
 
 import json
+from collections.abc import Callable
+from itertools import count as counter
 from threading import BoundedSemaphore, Event
 
 from twomd.ai import safe_error
@@ -18,6 +20,8 @@ def process_automatic_diagrams(
     proxy_password: str | None,
     cancel: Event,
     requests: BoundedSemaphore,
+    *,
+    progress: Callable[[str], None] | None = None,
 ) -> ConversionOutcome:
     markdown = outcome.markdown
     report_path = markdown.parent / "conversion-report.json"
@@ -30,6 +34,10 @@ def process_automatic_diagrams(
     ]
     count = len(picture_references(markdown))
     retryable = False
+
+    def notify(message: str) -> None:
+        if progress is not None:
+            progress(message)
 
     def persist() -> None:
         current = json.loads(report_path.read_text(encoding="utf-8"))
@@ -48,9 +56,11 @@ def process_automatic_diagrams(
             if pending_diagram(markdown, reference) is not None:
                 processed.add(index)
                 continue
+            notify(f"Imagen {index}/{count}: esperando disponibilidad para IA.")
             while not requests.acquire(timeout=0.2):
                 if cancel.is_set():
                     raise ConversionCancelled("Análisis automático cancelado.")
+            attempts = counter(1)
             try:
                 if cancel.is_set():
                     raise ConversionCancelled("Análisis automático cancelado.")
@@ -61,18 +71,28 @@ def process_automatic_diagrams(
                     settings.network,
                     api_key,
                     proxy_password,
+                    on_request=lambda index=index, attempts=attempts: notify(
+                        f"Imagen {index}/{count}: solicitud a IA, intento {next(attempts)}."
+                    ),
+                    on_response=lambda status, index=index: notify(
+                        f"Imagen {index}/{count}: respuesta HTTP {status} de IA."
+                    ),
                 )
             except ConversionCancelled:
                 raise
             except Exception as error:  # noqa: BLE001
-                warnings.append(f"Análisis automático de imagen {index}: {safe_error(error)}")
+                message = safe_error(error)
+                notify(f"Imagen {index}/{count}: error de IA. {message}")
+                warnings.append(f"Análisis automático de imagen {index}: {message}")
                 retryable = True
                 continue
             finally:
                 requests.release()
+            notify(f"Imagen {index}/{count}: respuesta de IA recibida.")
             if cancel.is_set():
                 raise ConversionCancelled("Análisis automático cancelado.")
             if proposal.fiable and proposal.mermaid:
+                notify(f"Imagen {index}/{count}: preparando y validando Mermaid.")
                 try:
                     render_mermaid(proposal.mermaid)
                     if cancel.is_set():
@@ -81,12 +101,16 @@ def process_automatic_diagrams(
                         markdown, reference, proposal.mermaid, settings.ai.model, pending=True
                     )
                 except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+                    notify(f"Imagen {index}/{count}: no se pudo validar o guardar Mermaid.")
                     warnings.append(
                         f"Análisis automático de imagen {index}: "
                         "no se pudo validar o guardar la propuesta Mermaid."
                     )
                     retryable = True
                     continue
+                notify(f"Imagen {index}/{count}: diagrama guardado pendiente de revisión.")
+            else:
+                notify(f"Imagen {index}/{count}: sin propuesta de diagrama fiable.")
             processed.add(index)
     finally:
         persist()

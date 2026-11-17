@@ -132,3 +132,7 @@ def test_portable_spec_shares_resources_and_separates_entrypoints(build_project,
     sources = [entry[0] for entry in result["analysis"].datas]
     assert any("tableformer\\accurate" in source for source in sources)
     assert not any("heron-onnx" in source or "tableformer\\fast" in source for source in sources)
+    assert any(
+        Path(source).name == "unimathsymbols.txt" and destination == "latex2mathml"
+        for source, destination in result["analysis"].datas
+    )

@@ -1,3 +1,4 @@
+from itertools import count
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -27,7 +28,8 @@ from twomd.network import create_http_client
 
 
 class CheckSignals(QObject):
-    finished = Signal(str)
+    finished = Signal(str, bool)
+    activity = Signal(str)
 
 
 class ConnectionCheck(QRunnable):
@@ -52,16 +54,26 @@ class ConnectionCheck(QRunnable):
                         self.settings.ai.base_url, timeout=self.settings.ai.timeout
                     )
                     if response.status_code == 407:
-                        self.signals.finished.emit("El proxy rechazó la autenticación (HTTP 407).")
+                        self.signals.finished.emit(
+                            "El proxy rechazó la autenticación (HTTP 407).", False
+                        )
                         return
                 message = f"Conexión de red establecida (HTTP {response.status_code})."
             else:
+                attempts = count(1)
+                kind = "visión" if self.kind == "vision" else "conexión"
                 check_connection(
                     self.settings.ai,
                     self.settings.network,
                     self.api_key,
                     self.proxy_password,
                     self.kind == "vision",
+                    on_request=lambda: self.signals.activity.emit(
+                        f"IA: prueba de {kind}, solicitud, intento {next(attempts)}."
+                    ),
+                    on_response=lambda status: self.signals.activity.emit(
+                        f"IA: prueba de {kind}, respuesta HTTP {status}."
+                    ),
                 )
                 message = (
                     "Prueba de visión correcta."
@@ -70,9 +82,13 @@ class ConnectionCheck(QRunnable):
                 )
         except ImportError:
             message = "Faltan dependencias necesarias para comprobar la conexión."
+            success = False
         except Exception as error:  # noqa: BLE001
             message = safe_error(error)
-        self.signals.finished.emit(message)
+            success = False
+        else:
+            success = True
+        self.signals.finished.emit(message, success)
 
 
 def _secret_input() -> tuple[QWidget, QLineEdit]:
@@ -94,6 +110,8 @@ def _secret_input() -> tuple[QWidget, QLineEdit]:
 
 
 class SettingsDialog(QDialog):
+    activity = Signal(str)
+
     def __init__(self, settings: Settings, parent: QWidget) -> None:
         super().__init__(parent)
         self.settings = settings
@@ -335,9 +353,17 @@ class SettingsDialog(QDialog):
                 return
         self.worker = ConnectionCheck(settings, api_key, password, kind)
         self.worker.signals.finished.connect(self.check_finished)
+        self.worker.signals.activity.connect(self.activity.emit)
+        if kind != "network":
+            label = "visión" if kind == "vision" else "conexión"
+            self.activity.emit(f"IA: preparando prueba de {label}.")
         self.pool.start(self.worker)
         QMessageBox.information(self, "Conexión", "La comprobación se está ejecutando.")
 
-    def check_finished(self, message: str) -> None:
+    def check_finished(self, message: str, success: bool) -> None:
+        if self.worker is not None and self.worker.kind != "network":
+            self.activity.emit(
+                f"IA: {'prueba completada' if success else 'error en la prueba'}. {message}"
+            )
         self.worker = None
         QMessageBox.information(self, "Resultado de la conexión", message)

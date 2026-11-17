@@ -59,6 +59,44 @@ def test_rejects_invalid_mermaid_proposal(tmp_path, monkeypatch):
         propose_diagram(image, "", settings, NetworkSettings(), "clave", None)
 
 
+def test_proposal_reports_each_http_attempt(tmp_path, monkeypatch):
+    from twomd import diagrams
+
+    image = tmp_path / "imagen.png"
+    Image.new("RGB", (2, 2), "white").save(image)
+    attempts = []
+    statuses = []
+    responses = []
+
+    def respond(request):
+        responses.append(request)
+        if len(responses) == 1:
+            return httpx.Response(500, headers={"retry-after": "0"})
+        body = {"categoria": "fotografia", "fiable": False}
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(body)}}]})
+
+    monkeypatch.setattr(
+        diagrams,
+        "create_http_client",
+        lambda settings, password: httpx.Client(transport=httpx.MockTransport(respond)),
+    )
+    settings = AISettings(
+        enabled=True, base_url="https://example.com/v1", model="vision", max_retries=1
+    )
+    propose_diagram(
+        image,
+        "",
+        settings,
+        NetworkSettings(),
+        "clave",
+        None,
+        on_request=lambda: attempts.append(1),
+        on_response=statuses.append,
+    )
+    assert len(attempts) == len(responses) == 2
+    assert statuses == [500, 200]
+
+
 def test_automatic_diagrams_insert_reviewable_results_and_report_failures(tmp_path, monkeypatch):
     from twomd import automatic_diagrams
     from twomd.review import accept_diagram, pending_diagram, picture_references
@@ -90,12 +128,14 @@ def test_automatic_diagrams_insert_reviewable_results_and_report_failures(tmp_pa
     calls = []
     failed_once = False
 
-    def propose(image, context, ai, network, key, password):
+    def propose(image, context, ai, network, key, password, *, on_request, on_response):
         nonlocal failed_once
         calls.append(image.name)
+        on_request()
         if image.name == "error.png" and not failed_once:
             failed_once = True
             raise RuntimeError("clave-secreta")
+        on_response(200)
         if image.name in {"photo.png", "error.png"}:
             return DiagramProposal(categoria="fotografia", fiable=False)
         return DiagramProposal(categoria="flujo", fiable=True, mermaid="flowchart LR\nA-->B")
@@ -105,8 +145,15 @@ def test_automatic_diagrams_insert_reviewable_results_and_report_failures(tmp_pa
     settings = Settings(
         ai=AISettings(enabled=True, base_url="https://example.com/v1", model="vision")
     )
+    activity = []
     result = automatic_diagrams.process_automatic_diagrams(
-        ConversionOutcome(markdown, ()), settings, "clave", None, Event(), BoundedSemaphore(1)
+        ConversionOutcome(markdown, ()),
+        settings,
+        "clave",
+        None,
+        Event(),
+        BoundedSemaphore(1),
+        progress=activity.append,
     )
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert calls == ["diagram.png", "photo.png", "error.png"]
@@ -120,6 +167,12 @@ def test_automatic_diagrams_insert_reviewable_results_and_report_failures(tmp_pa
     assert "clave-secreta" not in report_path.read_text(encoding="utf-8")
     assert result.warnings
     assert result.retryable
+    assert any("Imagen 1/3: solicitud a IA, intento 1" in line for line in activity)
+    assert any("Imagen 1/3: respuesta HTTP 200" in line for line in activity)
+    assert any("Imagen 1/3: preparando y validando Mermaid" in line for line in activity)
+    assert any("Imagen 2/3: sin propuesta" in line for line in activity)
+    assert any("Imagen 3/3: error de IA" in line for line in activity)
+    assert "clave-secreta" not in "\n".join(activity)
 
     calls.clear()
     retried = automatic_diagrams.process_automatic_diagrams(

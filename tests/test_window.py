@@ -76,13 +76,13 @@ def test_automatic_diagrams_run_after_conversion(qtbot, tmp_path, monkeypatch):
     monkeypatch.setattr(conversion_worker, "convert_document", convert)
     monkeypatch.setattr(main_window, "get_secret", lambda name: "clave")
     monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Yes)
-    monkeypatch.setattr(
-        automatic_diagrams,
-        "propose_diagram",
-        lambda *args: DiagramProposal(
-            categoria="flujo", fiable=True, mermaid="flowchart LR\nA-->B"
-        ),
-    )
+
+    def propose(*args, on_request, on_response):
+        on_request()
+        on_response(200)
+        return DiagramProposal(categoria="flujo", fiable=True, mermaid="flowchart LR\nA-->B")
+
+    monkeypatch.setattr(automatic_diagrams, "propose_diagram", propose)
     monkeypatch.setattr(automatic_diagrams, "render_mermaid", lambda code: b"PNG")
     settings = Settings(
         output_directory=str(tmp_path),
@@ -99,3 +99,36 @@ def test_automatic_diagrams_run_after_conversion(qtbot, tmp_path, monkeypatch):
     assert "pendiente de revisión" in text
     assert "```mermaid\nflowchart LR\nA-->B\n```" in text
     assert window.automatic_diagrams.isEnabled()
+    activity = window.activity.toPlainText()
+    assert "documento.docx" in activity
+    assert "Imagen 1/1: solicitud a IA, intento 1" in activity
+    assert "Imagen 1/1: respuesta HTTP 200" in activity
+    assert "Imagen 1/1: respuesta de IA recibida" in activity
+    assert "Imagen 1/1: preparando y validando Mermaid" in activity
+    assert "clave" not in activity
+
+
+def test_settings_reports_ai_connection_attempts(qtbot, monkeypatch):
+    from twomd.ui import settings_dialog
+
+    settings = Settings(
+        ai=AISettings(enabled=True, base_url="https://example.com/v1", model="vision")
+    )
+    monkeypatch.setattr(settings_dialog, "get_secret", lambda name: "clave-secreta")
+    monkeypatch.setattr(QMessageBox, "information", lambda *args: None)
+
+    def check(*args, on_request, on_response):
+        on_request()
+        on_response(200)
+
+    monkeypatch.setattr(settings_dialog, "check_connection", check)
+    dialog = settings_dialog.SettingsDialog(settings, None)
+    qtbot.addWidget(dialog)
+    messages = []
+    dialog.activity.connect(messages.append)
+    dialog.start_check("vision")
+    qtbot.waitUntil(lambda: dialog.worker is None, timeout=10000)
+    assert any("prueba de visión" in message and "intento 1" in message for message in messages)
+    assert any("respuesta HTTP 200" in message for message in messages)
+    assert any("prueba completada" in message for message in messages)
+    assert "clave-secreta" not in "\n".join(messages)

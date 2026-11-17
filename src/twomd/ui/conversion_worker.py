@@ -21,6 +21,7 @@ class ConversionSignals(QObject):
     finished = Signal(int, object)
     failed = Signal(int, str)
     cancelled = Signal(int)
+    activity = Signal(int, str)
 
 
 class ConversionWorker(QRunnable):
@@ -63,6 +64,7 @@ class ConversionWorker(QRunnable):
                     self.automatic.proxy_password,
                     self.cancel,
                     self.automatic.requests,
+                    progress=lambda message: self.signals.activity.emit(self.row, message),
                 )
         except ConversionCancelled:
             self.signals.cancelled.emit(self.row)

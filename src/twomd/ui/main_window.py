@@ -1,7 +1,7 @@
 from pathlib import Path
 from threading import BoundedSemaphore, Event
 
-from PySide6.QtCore import Qt, QThreadPool, Signal
+from PySide6.QtCore import Qt, QThreadPool, QTime, Signal
 from PySide6.QtGui import QCloseEvent, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -213,6 +213,7 @@ class MainWindow(QMainWindow):
 
     def configure(self) -> None:
         dialog = SettingsDialog(self.settings, self)
+        dialog.activity.connect(self.log_ai_activity)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             try:
                 if dialog.api_key.text():
@@ -339,6 +340,7 @@ class MainWindow(QMainWindow):
             worker.signals.finished.connect(self.conversion_finished)
             worker.signals.failed.connect(self.conversion_failed)
             worker.signals.cancelled.connect(self.conversion_cancelled)
+            worker.signals.activity.connect(self.ai_activity)
             self.workers[row] = worker
             self.table.item(row, 1).setText(
                 "Procesando documento e imágenes"
@@ -348,6 +350,12 @@ class MainWindow(QMainWindow):
             self.table.item(row, 2).setText("En curso")
             self.activity.appendPlainText(f"Convirtiendo: {source}")
             self.thread_pool.start(worker)
+
+    def ai_activity(self, row: int, message: str) -> None:
+        self.log_ai_activity(f"IA [{self.documents[row].name}]: {message}")
+
+    def log_ai_activity(self, message: str) -> None:
+        self.activity.appendPlainText(f"[{QTime.currentTime().toString('HH:mm:ss')}] {message}")
 
     def conversion_finished(self, row: int, outcome: ConversionOutcome) -> None:
         self.outcomes[row] = outcome
@@ -373,6 +381,7 @@ class MainWindow(QMainWindow):
             return
         try:
             dialog = ReviewDialog(outcome.markdown, self.settings, self)
+            dialog.activity.connect(self.log_ai_activity)
         except (OSError, ValueError) as error:
             QMessageBox.critical(self, "Revisión", f"No se puede abrir la revisión: {error}")
             return

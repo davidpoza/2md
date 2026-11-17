@@ -68,6 +68,50 @@ def test_failed_report_write_rolls_back(output, monkeypatch):
     assert not (output.parent / "diagrams" / "diagram-001.mmd").exists()
 
 
+def test_atomic_write_retries_transient_windows_denial(output, monkeypatch):
+    from twomd import review
+
+    replace = review.os.replace
+    attempts = 0
+
+    def temporarily_locked(source, destination):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            error = PermissionError("bloqueo temporal")
+            error.winerror = 5
+            raise error
+        replace(source, destination)
+
+    monkeypatch.setattr(review.os, "replace", temporarily_locked)
+    monkeypatch.setattr(review.time, "sleep", lambda _: None)
+    review._atomic_write(output, "actualizado")
+    assert attempts == 3
+    assert output.read_text(encoding="utf-8") == "actualizado"
+
+
+def test_atomic_write_preserves_original_after_persistent_denial(output, monkeypatch):
+    from twomd import review
+
+    original = output.read_text(encoding="utf-8")
+    attempts = 0
+
+    def locked(source, destination):
+        nonlocal attempts
+        attempts += 1
+        error = PermissionError("acceso denegado")
+        error.winerror = 5
+        raise error
+
+    monkeypatch.setattr(review.os, "replace", locked)
+    monkeypatch.setattr(review.time, "sleep", lambda _: None)
+    with pytest.raises(PermissionError):
+        review._atomic_write(output, "actualizado")
+    assert attempts == 5
+    assert output.read_text(encoding="utf-8") == original
+    assert not list(output.parent.glob("tmp*"))
+
+
 def test_only_local_assets_are_reviewable(output):
     output.write_text(
         "![fuera](../externo.png)\n![remota](https://example.com/image.png)\n"

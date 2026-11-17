@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, copy_metadata
+from PyInstaller.utils.hooks import collect_all, collect_data_files, copy_metadata
 
 root = Path(SPECPATH).parent
 models = root / "resources" / "models"
@@ -30,6 +30,8 @@ datas.extend(
     ]
 )
 datas.extend(copy_metadata("torch"))
+datas.extend(collect_data_files("latex2mathml"))
+datas.extend(copy_metadata("latex2mathml"))
 binaries = []
 hiddenimports = []
 for package in (
