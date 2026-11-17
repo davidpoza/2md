@@ -17,18 +17,6 @@ def build_project(tmp_path):
     script = root / "scripts" / "build.ps1"
     script.parent.mkdir(parents=True)
     shutil.copy(Path(__file__).resolve().parents[1] / "scripts" / "build.ps1", script)
-    for name in (
-        "resources/models/docling-project--docling-layout-heron/model.safetensors",
-        "resources/models/docling-project--docling-layout-heron/config.json",
-        "resources/models/docling-project--docling-layout-heron/preprocessor_config.json",
-        "resources/models/docling-project--docling-layout-heron/README.md",
-        "resources/models/docling-project--docling-models/README.md",
-        "resources/models/docling-project--docling-models/model_artifacts/tableformer/accurate/tm_config.json",
-        "resources/models/docling-project--docling-models/model_artifacts/tableformer/accurate/tableformer_accurate.safetensors",
-    ):
-        path = root / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.touch()
     return root
 
 
@@ -69,15 +57,6 @@ def test_build_only_uses_portable_spec(build_project):
     assert not any(argument in {"--onefile", "--onedir"} for argument in call)
     assert str(build_project / "scripts" / "portable.spec") in call
     assert str(build_project / "output") in call
-
-
-def test_missing_docling_model_fails(build_project):
-    (
-        build_project / "resources/models/docling-project--docling-layout-heron/model.safetensors"
-    ).unlink()
-    result, calls = _run_build(build_project)
-    assert result.returncode != 0
-    assert not calls
 
 
 def test_portable_spec_shares_resources_and_separates_entrypoints(build_project, monkeypatch):
@@ -139,13 +118,8 @@ def test_portable_spec_shares_resources_and_separates_entrypoints(build_project,
     assert [item[0] for item in calls[0][1]] == ["hook", "gui"]
     assert [item[0] for item in calls[1][1]] == ["hook", "mcp"]
     assert result["bundle"][0][:2] == ("2MD", "2MD-MCP")
-    assert {"mermaidx", "novasvg", "quickjs"} <= set(collected)
+    assert {"xberg", "mermaidx", "novasvg", "quickjs"} <= set(collected)
     assert delvewheel == ["novasvg"]
     sources = [entry[0] for entry in result["analysis"].datas]
     assert not any("mermaid-runtime" in source for source in sources)
-    assert any("tableformer\\accurate" in source for source in sources)
-    assert not any("heron-onnx" in source or "tableformer\\fast" in source for source in sources)
-    assert any(
-        Path(source).name == "unimathsymbols.txt" and destination == "latex2mathml"
-        for source, destination in result["analysis"].datas
-    )
+    assert not any("docling" in source.lower() for source in sources)

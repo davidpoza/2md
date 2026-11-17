@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import twomd
 from twomd.config import Settings, save_settings
 from twomd.conversion import ConversionOutcome
 from twomd.credentials import get_secret, set_secret
@@ -67,7 +66,6 @@ class MainWindow(QMainWindow):
         self.batch_total = 0
         self.batch_done = 0
         self.batch_destination = Path()
-        self.batch_models: Path | None = None
         self.batch_automatic: AutomaticOptions | None = None
         self.thread_pool = QThreadPool(self)
         self.setWindowTitle("2MD — Conversor documental")
@@ -292,28 +290,11 @@ class MainWindow(QMainWindow):
                 password,
                 BoundedSemaphore(self.settings.ai.concurrency),
             )
-        models = (
-            Path(self.settings.models_directory)
-            if self.settings.models_directory
-            else Path(twomd.__file__).parent / "resources" / "models"
-        )
-        if (
-            any(self.documents[row].suffix.lower() == ".pdf" for row in rows)
-            and not models.is_dir()
-        ):
-            QMessageBox.information(
-                self,
-                "Modelos de Docling",
-                "Selecciona en Configuración una carpeta con los modelos locales de Docling. "
-                "Las descargas automáticas aún no están integradas con el proxy. "
-                "Los archivos PDF se marcarán como error; los DOCX continuarán.",
-            )
         self.cancel_event = Event()
         self.pending = rows
         self.batch_total = len(rows)
         self.batch_done = 0
         self.batch_destination = Path(self.settings.output_directory)
-        self.batch_models = models if models.is_dir() else None
         self.batch_automatic = automatic
         self.thread_pool.setMaxThreadCount(self.settings.document_concurrency)
         self.start_button.setEnabled(False)
@@ -334,7 +315,6 @@ class MainWindow(QMainWindow):
                 source,
                 self.batch_destination,
                 self.cancel_event,
-                self.batch_models,
                 self.batch_automatic,
             )
             worker.signals.finished.connect(self.conversion_finished)

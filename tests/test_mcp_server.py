@@ -106,7 +106,7 @@ def test_mcp_reads_document_to_configured_output(tmp_path, monkeypatch):
     monkeypatch.setattr(mcp_server, "settings_path", lambda: config)
     calls = []
 
-    def convert(source, destination, models_directory):
+    def convert(source, destination):
         calls.append((source, destination))
         return ConversionOutcome(markdown, ("Advertencia",))
 

@@ -52,7 +52,7 @@ def test_automatic_diagrams_run_after_conversion(qtbot, tmp_path, monkeypatch):
     output = tmp_path / "output"
     output.mkdir()
 
-    def convert(source, destination, cancel, models, cache_variant=""):
+    def convert(source, destination, cancel, cache_variant=""):
         assert cache_variant
         assets = output / "assets"
         assets.mkdir()

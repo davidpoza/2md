@@ -5,44 +5,31 @@ param(
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
-$models = Join-Path $root "resources\models"
 if (-not $OutputDirectory) {
-    $OutputDirectory = Join-Path $root "dist"
+    $OutputDirectory = Join-Path $root "dist-node"
 }
 $OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
-if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-    throw "Se necesita uv para preparar la distribucion de desarrollo."
-}
-if (-not (Test-Path -LiteralPath $models -PathType Container)) {
-    throw "Faltan los modelos locales de Docling en resources\models. Consulta README.md."
-}
-foreach ($required in @(
-    "docling-project--docling-layout-heron\model.safetensors",
-    "docling-project--docling-layout-heron\config.json",
-    "docling-project--docling-layout-heron\preprocessor_config.json",
-    "docling-project--docling-layout-heron\README.md",
-    "docling-project--docling-models\README.md",
-    "docling-project--docling-models\model_artifacts\tableformer\accurate\tm_config.json",
-    "docling-project--docling-models\model_artifacts\tableformer\accurate\tableformer_accurate.safetensors"
-)) {
-    if (-not (Test-Path -LiteralPath (Join-Path $models $required) -PathType Leaf)) {
-        throw "Falta un recurso de Docling: $required."
-    }
+if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+    throw "Se necesita Node.js 22.19 o posterior y npm."
 }
 Write-Warning "Distribucion sin verificar: prueba el EXE y sus recursos en Windows limpio."
 Push-Location $root
 try {
-    $arguments = @(
-        "--noconfirm",
-        "--workpath", (Join-Path $root "build\pyinstaller"),
-        "--distpath", $OutputDirectory,
-        (Join-Path $root "scripts\portable.spec")
-    )
-    Write-Host "Iniciando PyInstaller para la carpeta portable..."
-    & uv run --python 3.12 --group package pyinstaller @arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "PyInstaller termino con el codigo $LASTEXITCODE."
+    $portable = Join-Path $OutputDirectory "2MD"
+    $unpacked = Join-Path $OutputDirectory "win-unpacked"
+    if ((Test-Path -LiteralPath $portable) -or (Test-Path -LiteralPath $unpacked)) {
+        throw "La salida ya existe. Elige un OutputDirectory nuevo para no sobrescribirla."
     }
+    & npm ci --no-audit --no-fund
+    if ($LASTEXITCODE -ne 0) {
+        throw "No se pudieron instalar las dependencias Node."
+    }
+    & npm run dist -- "--config.directories.output=$OutputDirectory"
+    if ($LASTEXITCODE -ne 0) {
+        throw "electron-builder termino con el codigo $LASTEXITCODE."
+    }
+    Move-Item -LiteralPath $unpacked -Destination $portable
+    Write-Host "Portable generado en $portable. Copia la carpeta completa."
 }
 finally {
     Pop-Location

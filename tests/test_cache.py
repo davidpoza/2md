@@ -10,9 +10,9 @@ def test_cache_refuses_modified_output(tmp_path):
     report = {
         "sha256": "source",
         "archivo_original": str(source),
-        "version_docling": "version",
+        "version_xberg": "version",
         "configuracion_hash": "config",
-        "version_cache": 1,
+        "version_cache": 2,
         "estado": "completado",
         "archivos": output_hashes(tmp_path, markdown),
         "markdown": markdown.name,

@@ -1,7 +1,9 @@
-"""Conversión local de un documento mediante Docling."""
+"""Conversión local de un documento mediante Xberg."""
 
+import asyncio
 import hashlib
 import json
+import re
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -10,11 +12,15 @@ from pathlib import Path
 from threading import Event
 
 from twomd import __version__
-from twomd.cache import model_files_hash, output_hashes, read_cached_result
+from twomd.cache import output_hashes, read_cached_result
 
 
 class ConversionCancelled(Exception):
     pass
+
+
+_IMAGE_REFERENCE = re.compile(r"!\[([^\]]*)\]\(embedded:([^)]+)\)")
+_IMAGE_EXTENSIONS = {"bmp", "gif", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp"}
 
 
 @dataclass(frozen=True)
@@ -28,28 +34,21 @@ def convert_document(
     source: Path,
     destination: Path,
     cancel: Event | None = None,
-    models_directory: Path | None = None,
     cache_variant: str = "",
 ) -> ConversionOutcome:
-    from docling.datamodel.base_models import ConversionStatus, InputFormat
-    from docling.datamodel.pipeline_options import (
-        LayoutObjectDetectionOptions,
-        PdfPipelineOptions,
-        TableFormerMode,
-        TableStructureOptions,
+    from xberg import (
+        ExtractInput,
+        ExtractionConfig,
+        ImageExtractionConfig,
+        PdfConfig,
+        extract,
     )
-    from docling.document_converter import DocumentConverter, PdfFormatOption
-    from docling_core.types.doc import ImageRefMode
 
     source = source.resolve(strict=True)
     if source.suffix.lower() not in {".docx", ".pdf"} or not source.is_file():
         raise ValueError("El archivo debe ser un documento DOCX o PDF existente.")
     if not destination.is_dir():
         raise ValueError("La carpeta de destino no existe.")
-    if source.suffix.lower() == ".pdf" and (
-        models_directory is None or not models_directory.is_dir()
-    ):
-        raise ValueError("Selecciona una carpeta válida de modelos locales de Docling.")
 
     started = time.monotonic()
     cancel = cancel if cancel is not None else Event()
@@ -72,16 +71,10 @@ def convert_document(
         hashed_stat.st_mtime_ns,
     ):
         raise RuntimeError("El archivo original cambió durante el cálculo del hash.")
-    docling_version = version("docling")
-    core_version = version("docling-core")
-    model_hash = (
-        model_files_hash(models_directory, check_cancelled)
-        if source.suffix.lower() == ".pdf" and models_directory is not None
-        else ""
-    )
-    config = f"2md-v1:{docling_version}:{core_version}:scale=2:{model_hash}"
+    xberg_version = version("xberg")
+    config = f"2md-v2:{xberg_version}:output=markdown:ocr=off:images=referenced:"
     if source.suffix.lower() == ".pdf":
-        config += ":ocr=off"
+        config += "pdf-images=on:"
     if cache_variant:
         config += f":diagramas={cache_variant}"
     config_hash = hashlib.sha256(config.encode()).hexdigest()
@@ -89,27 +82,29 @@ def convert_document(
     path_hash = hashlib.sha256(str(source).casefold().encode("utf-8")).hexdigest()[:12]
     output = destination / f"{source.stem}-{path_hash}-{source_hash[:12]}-{config_hash[:12]}"
     if output.exists():
-        cached = read_cached_result(output, source, source_hash, docling_version, config_hash)
+        cached = read_cached_result(output, source, source_hash, xberg_version, config_hash)
         if cached is None:
             raise FileExistsError(
                 f"Ya existe una carpeta de salida no reutilizable en «{output}». "
                 "No se sobrescribirá."
             )
         return ConversionOutcome(markdown=cached[0], warnings=cached[1])
-    options = PdfPipelineOptions(
-        do_ocr=False,
-        generate_picture_images=True,
-        images_scale=2.0,
-        enable_remote_services=False,
-        artifacts_path=models_directory,
-        layout_options=LayoutObjectDetectionOptions.from_preset("layout_heron_default"),
-        table_structure_options=TableStructureOptions(mode=TableFormerMode.ACCURATE),
+    extraction_config = ExtractionConfig(
+        use_cache=False,
+        disable_ocr=True,
+        ocr_embedded_images=False,
+        output_format="markdown",
+        images=ImageExtractionConfig(
+            extract_images=True,
+            inject_placeholders=True,
+            run_ocr_on_images=False,
+            append_ocr_text=False,
+        ),
+        pdf_options=PdfConfig(extract_images=True, ocr_inline_images=False),
     )
-    converter = DocumentConverter(
-        allowed_formats=[InputFormat.PDF, InputFormat.DOCX],
-        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)},
+    result = asyncio.run(
+        extract(ExtractInput(kind="uri", uri=str(source)), extraction_config)
     )
-    result = converter.convert(source, raises_on_error=False)
     if cancel.is_set():
         raise ConversionCancelled("Conversión cancelada después de la extracción.")
     after_stat = source.stat()
@@ -118,43 +113,59 @@ def convert_document(
         after_stat.st_mtime_ns,
     ):
         raise RuntimeError("El archivo original cambió durante la conversión.")
-    if result.status not in (ConversionStatus.SUCCESS, ConversionStatus.PARTIAL_SUCCESS):
-        messages = "; ".join(error.error_message for error in result.errors)
-        raise RuntimeError(f"Docling no pudo convertir el documento. {messages}".strip())
+    if not result.results:
+        messages = "; ".join(error.message for error in result.errors)
+        raise RuntimeError(f"Xberg no pudo convertir el documento. {messages}".strip())
 
     warnings = []
     if source.suffix.lower() == ".pdf":
         warnings.append(
             "OCR desactivado: no se extraerá texto de imágenes ni de páginas escaneadas."
         )
-    if result.status == ConversionStatus.PARTIAL_SUCCESS:
-        warnings.append("Docling informó de una conversión parcial; revisa el resultado.")
-    warnings.extend(error.error_message for error in result.errors)
-    missing = sum(
-        picture.get_image(result.document) is None for picture in result.document.pictures
-    )
+    warnings.extend(f"Xberg: {error.message}" for error in result.errors)
+    document = result.results[0]
+    images = document.images or []
+    missing = sum(not image.data for image in images)
     if missing:
         warnings.append(f"No se pudieron recuperar {missing} imágenes del documento.")
 
     output.mkdir()
     markdown = output / f"{source.stem}.md"
     try:
-        result.document.save_as_markdown(
-            markdown,
-            artifacts_dir=Path("assets"),
-            image_mode=ImageRefMode.REFERENCED,
-        )
+        assets = output / "assets"
+        image_references: dict[str, str] = {}
+        for index, image in enumerate(images, start=1):
+            if not image.data:
+                continue
+            extension = (image.format or "").lower().lstrip(".")
+            suffix = extension if extension in _IMAGE_EXTENSIONS else "bin"
+            relative_path = Path("assets") / f"image-{index:04d}.{suffix}"
+            assets.mkdir(exist_ok=True)
+            (output / relative_path).write_bytes(image.data)
+            page_number = image.page_number or 1
+            image_references[f"p{page_number}_i{image.image_index}"] = (
+                relative_path.as_posix()
+            )
+
+        def replace_image_reference(match: re.Match[str]) -> str:
+            relative_path = image_references.get(match.group(2))
+            if relative_path is None:
+                return match.group(1)
+            return f"![{match.group(1)}]({relative_path})"
+
+        content = _IMAGE_REFERENCE.sub(replace_image_reference, document.content)
+        markdown.write_text(content, encoding="utf-8")
         report = {
             "archivo_original": str(source),
             "sha256": source_hash,
             "fecha": datetime.now(UTC).isoformat(),
             "estado": "completado_con_advertencias" if warnings else "completado",
             "version_2md": __version__,
-            "version_docling": docling_version,
+            "version_xberg": xberg_version,
             "configuracion_hash": config_hash,
-            "version_cache": 1,
+            "version_cache": 2,
             "modelo_ia": None,
-            "imagenes": len(result.document.pictures),
+            "imagenes": len(images),
             "diagramas": 0,
             "diagramas_convertidos": 0,
             "diagramas_pendientes_revision": 0,

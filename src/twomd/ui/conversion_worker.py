@@ -31,7 +31,6 @@ class ConversionWorker(QRunnable):
         source: Path,
         destination: Path,
         cancel: Event,
-        models: Path | None,
         automatic: AutomaticOptions | None = None,
     ) -> None:
         super().__init__()
@@ -39,7 +38,6 @@ class ConversionWorker(QRunnable):
         self.source = source
         self.destination = destination
         self.cancel = cancel
-        self.models = models
         self.automatic = automatic
         self.signals = ConversionSignals()
 
@@ -52,7 +50,7 @@ class ConversionWorker(QRunnable):
                     ("auto-v1:" + self.automatic.settings.ai.model_dump_json()).encode("utf-8")
                 ).hexdigest()
             outcome = convert_document(
-                self.source, self.destination, self.cancel, self.models, cache_variant=variant
+                self.source, self.destination, self.cancel, cache_variant=variant
             )
             if self.automatic:
                 from twomd.automatic_diagrams import process_automatic_diagrams

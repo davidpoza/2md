@@ -14,11 +14,18 @@ def test_settings_round_trip(tmp_path):
     assert set(json.loads(path.read_text(encoding="utf-8"))) == {
         "output_directory",
         "document_concurrency",
-        "models_directory",
         "ai",
         "network",
         "mcp",
     }
+
+
+def test_legacy_models_directory_is_ignored(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text('{"models_directory": "C:\\\\modelos"}', encoding="utf-8")
+    settings = load_settings(path)
+    save_settings(path, settings)
+    assert "models_directory" not in json.loads(path.read_text(encoding="utf-8"))
 
 
 def test_invalid_settings_are_not_silently_discarded(tmp_path):

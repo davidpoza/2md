@@ -103,10 +103,17 @@ class Settings(BaseModel):
 
     output_directory: str = ""
     document_concurrency: int = Field(default=2, ge=1, le=8)
-    models_directory: str = ""
     ai: AISettings = Field(default_factory=AISettings)
     network: NetworkSettings = Field(default_factory=NetworkSettings)
     mcp: MCPSettings = Field(default_factory=MCPSettings)
+
+    @model_validator(mode="before")
+    @classmethod
+    def remove_legacy_models_directory(cls, value: object) -> object:
+        if isinstance(value, dict):
+            value = value.copy()
+            value.pop("models_directory", None)
+        return value
 
 
 def settings_path() -> Path:

@@ -9,19 +9,18 @@ sin recorrer subcarpetas, arrastrarlos y elegir una carpeta de destino. La selec
 es temporal; el destino y el límite de concurrencia se guardan en
 `%APPDATA%\2MD\settings.json`. Este archivo no almacena credenciales.
 
-Se han implementado la conversión local por lotes mediante Docling, workers con
+Se han implementado la conversión local por lotes mediante Xberg, workers con
 concurrencia configurable, cancelación cooperativa y reintentos, exportación Markdown
 con imágenes referenciadas, informes de conversiones completadas y reutilización
 de resultados cuyo contenido y configuración no han cambiado. No se sobrescriben
 carpetas existentes que no se puedan reutilizar. Una exportación fallida puede dejar
 una carpeta incompleta; los errores no producen todavía un informe individual.
 
-Los PDF requieren seleccionar una carpeta de modelos Docling ya descargados en
-Configuración. Esto evita depender de descargas automáticas mientras no se integre
-su transporte con la configuración de red. **No se realiza OCR**: el texto de
-imágenes y páginas escaneadas no se extrae y cada PDF genera una advertencia.
-La cancelación espera a que termine
-la operación Docling en curso. El cálculo de hash de los modelos puede ser costoso.
+La extracción utiliza Xberg sin OCR para evitar descargas de modelos y conservar
+el comportamiento actual: el texto de imágenes y páginas escaneadas no se extrae,
+y cada PDF genera una advertencia. Las imágenes detectadas se guardan como archivos
+referenciados en `assets`. La cancelación espera a que termine la operación Xberg
+en curso.
 
 La interfaz contiene configuración de IA, proxy y CA, almacenamiento de secretos
 con el backend de Windows de keyring y pruebas explícitas de conexión y visión.
@@ -49,9 +48,9 @@ uv run 2md
 ```
 
 Los tests se encuentran en `tests`; la configuración de calidad usa pytest,
-pytest-qt y Ruff. Docling y docling-core están fijados a las versiones 2.150.0 y
-2.106.0 utilizadas como referencia para las APIs de esta fase. `uv.lock` fija
-las dependencias resueltas; la distribución todavía no está verificada.
+pytest-qt y Ruff. Xberg está fijado a la versión 1.3.8, que publica un wheel
+Windows x64 en su índice de archivo; `pyproject.toml` configura ese índice para uv.
+`uv.lock` fija las dependencias resueltas; la distribución todavía no está verificada.
 
 ### Empaquetado de desarrollo
 
@@ -66,13 +65,8 @@ copiarse completa. El script no elimina un `dist\2MD.exe` antiguo que ya exista.
 El renderizador Mermaid usa `mermaidx` con QuickJS, sin Node, npm, Puppeteer ni
 Chromium. Ya no se utiliza el parámetro `-ReuseMermaid` ni se genera un ZIP de runtime.
 
-Requiere uv, Python 3.12 x64 y los modelos de diseño y tablas de Docling obtenidos
-previamente en `resources\models`, por ejemplo mediante
-`docling-tools models download layout tableformer -o resources\models`.
-No requiere modelos de OCR. Los modelos no están incluidos en el
-repositorio. Se incorporan únicamente Heron con Transformers y TableFormer Accurate;
-las variantes ONNX y Fast no se utilizan. Los modelos incluidos se usan por defecto
-si el usuario no selecciona otros. Las dependencias Python del renderizador, sus
+Requiere uv y Python 3.12 x64. No requiere modelos de extracción ni descargas
+durante la conversión. Las dependencias Python del renderizador, sus
 archivos JavaScript y fuentes se incorporan mediante PyInstaller; no se extrae
 un navegador al validar un diagrama. El guion **no se ha validado** y no constituye
 una distribución final. Se deben comprobar también las licencias y el funcionamiento
@@ -175,21 +169,20 @@ ejecutable generado y un cliente real en Windows limpio.
 
 ## Viabilidad y decisiones pendientes
 
-La documentación disponible respalda la viabilidad general, no garantiza la
-compatibilidad del conjunto concreto ni la fidelidad total. Se debe resolver y
-verificar el conjunto de dependencias en Windows x64 antes de fijar sus versiones.
+La migración a Xberg está implementada, pero todavía no se han verificado la
+fidelidad de extracción ni la distribución portable en Windows.
 
-- **Python, Qt y empaquetado.** Docling admite Python 3.12 y Windows; PySide6 y
-  PyInstaller documentan soporte de Windows. PyInstaller incluye Python y Qt,
-  pero las importaciones dinámicas, dependencias nativas y datos de Docling pueden
-  necesitar hooks. Se debe verificar primero `--onedir` y después `--onefile` en
-  Windows 10 y 11 limpios.
-- **Documentos.** Docling admite PDF y DOCX. El ejemplo oficial de PDF configura
-  `generate_picture_images` y exporta imágenes referenciadas. No se ha demostrado
-  que capture todos los elementos de Word, formas o diagramas vectoriales, ni
-  que conserve perfectamente orden y tablas complejas; habrá que comprobar
-  documentos representativos y avisar de pérdidas. HTML para tablas complejas
-  requiere verificar la exportación y la compatibilidad con GitHub.
+- **Python, Qt y empaquetado.** Xberg publica un wheel `win_amd64` para Python
+  3.10+ ABI3 en su índice de archivo; el proyecto fija la versión 1.3.8 porque
+  la 1.3.9 de PyPI no incluye wheel para Windows. PyInstaller incluye Python y
+  Qt, pero la extensión Rust de Xberg puede necesitar hooks. Se debe verificar
+  primero `--onedir` en Windows limpio.
+- **Documentos.** Xberg admite PDF y DOCX y ofrece extracción Markdown e imágenes.
+  La integración exporta las imágenes extraídas como recursos referenciados. No se
+  ha demostrado que capture todos los elementos de Word, formas o diagramas
+  vectoriales, ni que conserve perfectamente orden y tablas complejas; habrá que
+  comprobar documentos representativos y avisar de pérdidas. HTML para tablas
+  complejas requiere verificar la exportación y la compatibilidad con GitHub.
 - **IA y red.** El SDK de OpenAI acepta `base_url` y un cliente HTTP configurable.
   La versión 1.109.1 seleccionada utiliza HTTPX 0.28.1; la documentación actual
   del SDK utiliza HTTPX2. HTTPX documenta proxy Basic y variables de entorno con
@@ -209,10 +202,9 @@ verificar el conjunto de dependencias en Windows x64 antes de fijar sus versione
   mediante su backend de Windows, sin alternativa en texto plano; aún hay que
   verificar la integración y que errores y registros no contienen secretos.
   La validación TLS no se deshabilita automáticamente.
-- **Modelos Docling.** Por defecto pueden descargarse al primer uso. Docling
-  permite obtenerlos por adelantado y configurar `artifacts_path`. Hay que incluir
-  los modelos exactos seleccionados y sus licencias en la distribución, e
-  investigar tamaño y rutas, sin depender de descargas silenciosas.
+- **OCR.** Se desactiva explícitamente para que la conversión no descargue modelos
+  ni procese texto de imágenes o páginas escaneadas. Se puede evaluar activarlo
+  más adelante, teniendo en cuenta sus dependencias y recursos externos.
 - **Mermaid.** `mermaidx` ejecuta Mermaid.js con QuickJS-ng y genera SVG sin
   navegador. El spec incluye sus recursos, fuentes y dependencias nativas; hay
   que verificar sus licencias y el empaquetado final autocontenido. La vista Qt
@@ -222,18 +214,17 @@ verificar el conjunto de dependencias en Windows x64 antes de fijar sus versione
   Un renderizado válido no garantiza que el
   diagrama reproduzca fielmente el original: será necesaria revisión humana.
 - **Cancelación y concurrencia.** Las tareas de Qt pueden mantener la interfaz
-  responsiva, pero la interrupción de una operación Docling en curso depende de
-  sus APIs; no se garantiza una cancelación inmediata. La memoria y los modelos
-  compartidos impondrán límites a la concurrencia que deberán medirse.
+  responsiva, pero la interrupción de una operación Xberg en curso no se garantiza.
+  La memoria y la concurrencia deben medirse con documentos representativos.
 - **Distribución portable.** Los dos ejecutables comparten una carpeta de
   dependencias; hay que verificar ambos en Windows limpio. La configuración
   permanece fuera de la carpeta de la aplicación.
 
 ### Fuentes
 
-- [Formatos de Docling](https://docling-project.github.io/docling/usage/supported_formats/)
-- [Opciones y modelos locales de Docling](https://docling-project.github.io/docling/usage/advanced_options/)
-- [Ejemplo oficial de extracción de figuras PDF](https://github.com/docling-project/docling/blob/main/docs/examples/export_figures.py)
+- [Xberg: README y formatos](https://github.com/xberg-io/xberg)
+- [Xberg: API Python](https://github.com/xberg-io/xberg/tree/v1.3.8/packages/python)
+- [Índice de wheels Xberg](https://xberg-io.github.io/python-wheels/simple/xberg/)
 - [HTTPX: proxies](https://www.python-httpx.org/advanced/proxies/) y
   [variables de entorno](https://www.python-httpx.org/environment_variables/)
 - [SDK OpenAI 1.109.1 y HTTPX](https://github.com/openai/openai-python/blob/v1.109.1/README.md)

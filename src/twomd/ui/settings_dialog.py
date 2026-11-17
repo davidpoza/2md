@@ -129,11 +129,6 @@ class SettingsDialog(QDialog):
         self.concurrency.setRange(1, 8)
         self.concurrency.setValue(settings.document_concurrency)
         form.addRow("Documentos simultáneos:", self.concurrency)
-        self.models_directory = QLineEdit(settings.models_directory)
-        choose_models = QPushButton("Seleccionar modelos locales")
-        choose_models.clicked.connect(self.choose_models)
-        form.addRow("Carpeta de modelos Docling:", self.models_directory)
-        form.addRow(choose_models)
         tabs.addTab(general, "General")
 
         ai = QWidget()
@@ -249,11 +244,6 @@ class SettingsDialog(QDialog):
         if file:
             self.ca_bundle.setText(file)
 
-    def choose_models(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Seleccionar modelos Docling")
-        if folder:
-            self.models_directory.setText(folder)
-
     def choose_mcp_directory(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Seleccionar directorio permitido")
         if folder:
@@ -282,7 +272,6 @@ class SettingsDialog(QDialog):
         return self.settings.model_copy(
             update={
                 "document_concurrency": self.concurrency.value(),
-                "models_directory": self.models_directory.text().strip(),
                 "ai": ai,
                 "network": network,
                 "mcp": MCPSettings(

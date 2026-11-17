@@ -1,8 +1,6 @@
 import hashlib
 import json
-import os
 import re
-import shutil
 from importlib.metadata import version
 from pathlib import Path
 
@@ -48,7 +46,7 @@ def test_existing_output_is_not_overwritten(tmp_path):
     destination.mkdir()
     path_hash = hashlib.sha256(str(source.resolve()).casefold().encode("utf-8")).hexdigest()[:12]
     content_hash = hashlib.sha256(b"").hexdigest()[:12]
-    config = f"2md-v1:{version('docling')}:{version('docling-core')}:scale=2:"
+    config = f"2md-v2:{version('xberg')}:output=markdown:ocr=off:images=referenced:"
     config_hash = hashlib.sha256(config.encode("utf-8")).hexdigest()[:12]
     output = destination / f"origen-{path_hash}-{content_hash}-{config_hash}"
     output.mkdir()
@@ -88,24 +86,6 @@ def _text_pdf(path: Path) -> None:
 
 @pytest.mark.parametrize("scanned", [False, True])
 def test_pdf_without_ocr(tmp_path, scanned):
-    available = Path(__file__).resolve().parents[1] / "resources" / "models"
-    models = tmp_path / "modelos"
-    for name in (
-        "docling-project--docling-layout-heron/config.json",
-        "docling-project--docling-layout-heron/preprocessor_config.json",
-        "docling-project--docling-layout-heron/model.safetensors",
-        "docling-project--docling-models/model_artifacts/tableformer/accurate/tm_config.json",
-        "docling-project--docling-models/model_artifacts/tableformer/accurate/tableformer_accurate.safetensors",
-    ):
-        source_model = available / name
-        if not source_model.is_file():
-            pytest.skip("Modelos locales de Docling no instalados")
-        target_model = models / name
-        target_model.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            os.link(source_model, target_model)
-        except OSError:
-            shutil.copy2(source_model, target_model)
     source = tmp_path / "origen.pdf"
     if scanned:
         image = Image.new("RGB", (612, 792), "white")
@@ -116,7 +96,7 @@ def test_pdf_without_ocr(tmp_path, scanned):
     destination = tmp_path / "salida"
     destination.mkdir()
 
-    outcome = convert_document(source, destination, models_directory=models)
+    outcome = convert_document(source, destination)
     content = outcome.markdown.read_text(encoding="utf-8")
     assert any("OCR desactivado" in warning for warning in outcome.warnings)
     if scanned:
@@ -127,4 +107,5 @@ def test_pdf_without_ocr(tmp_path, scanned):
         (outcome.markdown.parent / "conversion-report.json").read_text(encoding="utf-8")
     )
     assert report["estado"] == "completado_con_advertencias"
+    assert report["version_xberg"] == version("xberg")
     assert report["advertencias"] == list(outcome.warnings)

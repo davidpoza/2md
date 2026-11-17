@@ -65,16 +65,7 @@ def _read_document(ruta: str) -> DocumentResult:
     source = _document_path(ruta, settings.mcp.working_directory)
     if not settings.output_directory or not Path(settings.output_directory).is_dir():
         raise ValueError("Selecciona una carpeta de destino existente en 2MD.")
-    models = (
-        Path(settings.models_directory)
-        if settings.models_directory
-        else Path(twomd.__file__).parent / "resources" / "models"
-    )
-    outcome = convert_document(
-        source,
-        Path(settings.output_directory),
-        models_directory=models if models.is_dir() else None,
-    )
+    outcome = convert_document(source, Path(settings.output_directory))
     return {
         "markdown": outcome.markdown.read_text(encoding="utf-8"),
         "archivo_markdown": str(outcome.markdown),

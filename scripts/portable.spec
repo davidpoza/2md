@@ -2,48 +2,16 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import (
     collect_all,
-    collect_data_files,
     collect_delvewheel_libs_directory,
     copy_metadata,
 )
 
 root = Path(SPECPATH).parent
-models = root / "resources" / "models"
-layout = models / "docling-project--docling-layout-heron"
-tables = models / "docling-project--docling-models"
-layout_destination = r"twomd\resources\models\docling-project--docling-layout-heron"
-table_destination = r"twomd\resources\models\docling-project--docling-models"
-
-datas = []
-for filename in (
-    "config.json",
-    "preprocessor_config.json",
-    "model.safetensors",
-    "README.md",
-    "docling_heron_400.png",
-):
-    source = layout / filename
-    if source.is_file():
-        datas.append((str(source), layout_destination))
-datas.extend(
-    [
-        (str(tables / "README.md"), table_destination),
-        (
-            str(tables / "model_artifacts" / "tableformer" / "accurate"),
-            table_destination + r"\model_artifacts\tableformer\accurate",
-        ),
-    ]
-)
-datas.extend(copy_metadata("torch"))
-datas.extend(collect_data_files("latex2mathml"))
-datas.extend(copy_metadata("latex2mathml"))
+datas = copy_metadata("xberg")
 binaries = []
 hiddenimports = []
 for package in (
-    "docling",
-    "docling_core",
-    "docling_parse",
-    "docling_ibm_models",
+    "xberg",
     "keyring",
     "win32ctypes",
     "mcp",
