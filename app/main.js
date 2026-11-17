@@ -150,41 +150,49 @@ async function dispatch(method, ...args) {
   }
 }
 
-await app.whenReady();
-if (mcp) {
-  try {
-    console.log = (...args) => console.error(...args);
-    const { startMcp } = await import('./mcp.js');
-    await startMcp();
-  } catch (error) { console.error(error.message); app.exit(1); }
-} else {
-  try {
-    settings = await loadSettings();
-    window = new BrowserWindow({
-      width: 1100, height: 800, minWidth: 850, minHeight: 650, title: '2MD',
-      webPreferences: { preload: path.join(directory, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true },
-    });
-    window.setMenu(null);
-    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    window.webContents.on('will-navigate', event => event.preventDefault());
-    window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-    window.webContents.session.webRequest.onBeforeRequest((details, callback) =>
-      callback({ cancel: !details.url.startsWith('file:') && !details.url.startsWith('data:') && !details.url.startsWith('blob:') }));
-    ipcMain.handle('2md', async (event, method, ...args) => {
-      try {
-        if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame ||
-            event.senderFrame.url !== pathToFileURL(path.join(directory, 'renderer', 'index.html')).href)
-          throw new Error('Origen IPC no autorizado.');
-        return { ok: true, value: await dispatch(method, ...args) };
-      } catch (error) { return { ok: false, error: error.message }; }
-    });
-    window.on('close', event => {
-      if (batch.running || interaction) { event.preventDefault(); activity('Cancela el lote y espera a que terminen las operaciones antes de cerrar.'); }
-    });
-    await window.loadFile(path.join(directory, 'renderer', 'index.html'));
-  } catch (error) {
-    dialog.showErrorBox('No se puede iniciar 2MD', error.message);
-    app.exit(1);
+async function startApplication() {
+  if (mcp) {
+    try {
+      console.log = (...args) => console.error(...args);
+      const { startMcp } = await import('./mcp.js');
+      await startMcp();
+    } catch (error) { console.error(error.message); app.exit(1); }
+  } else {
+    try {
+      settings = await loadSettings();
+      window = new BrowserWindow({
+        width: 1100, height: 800, minWidth: 850, minHeight: 650, title: '2MD',
+        webPreferences: { preload: path.join(directory, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true },
+      });
+      window.setMenu(null);
+      window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      window.webContents.on('will-navigate', event => event.preventDefault());
+      window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+      window.webContents.session.webRequest.onBeforeRequest((details, callback) =>
+        callback({ cancel: !details.url.startsWith('file:') && !details.url.startsWith('data:') && !details.url.startsWith('blob:') }));
+      ipcMain.handle('2md', async (event, method, ...args) => {
+        try {
+          if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame ||
+              event.senderFrame.url !== pathToFileURL(path.join(directory, 'renderer', 'index.html')).href)
+            throw new Error('Origen IPC no autorizado.');
+          return { ok: true, value: await dispatch(method, ...args) };
+        } catch (error) { return { ok: false, error: error.message }; }
+      });
+      window.on('close', event => {
+        if (batch.running || interaction) { event.preventDefault(); activity('Cancela el lote y espera a que terminen las operaciones antes de cerrar.'); }
+      });
+      await window.loadFile(path.join(directory, 'renderer', 'index.html'));
+    } catch (error) {
+      dialog.showErrorBox('No se puede iniciar 2MD', error.message);
+      app.exit(1);
+    }
+    app.on('window-all-closed', () => app.quit());
   }
-  app.on('window-all-closed', () => app.quit());
 }
+
+// Electron must finish evaluating this ESM entry point before it can become ready.
+app.whenReady().then(startApplication).catch(error => {
+  if (mcp) console.error(error.message);
+  else dialog.showErrorBox('No se puede iniciar 2MD', error.message);
+  app.exit(1);
+});
