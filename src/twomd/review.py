@@ -11,6 +11,7 @@ from urllib.parse import unquote, urlsplit
 from twomd.cache import output_hashes
 
 _IMAGE = re.compile(r"!\[[^\]\n]*\]\(([^)\n]+)\)")
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})([^\r\n]*)")
 
 
 @dataclass(frozen=True)
@@ -30,27 +31,48 @@ def picture_references(markdown: Path) -> list[PictureReference]:
     if not assets.is_relative_to(root):
         raise ValueError("La carpeta de imágenes está fuera de la salida.")
     result = []
-    for match in _IMAGE.finditer(text):
-        parsed = urlsplit(match.group(1))
-        if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
+    offset = 0
+    fence: str | None = None
+    for line in text.splitlines(keepends=True):
+        marker = _FENCE.match(line)
+        if fence is not None:
+            if (
+                marker
+                and marker.group(1)[0] == fence[0]
+                and len(marker.group(1)) >= len(fence)
+                and not marker.group(2).strip()
+            ):
+                fence = None
+            offset += len(line)
             continue
-        image = (root / unquote(parsed.path)).resolve()
-        if (
-            not image.is_relative_to(assets)
-            or not image.is_relative_to(root)
-            or not image.is_file()
-        ):
+        if marker and (marker.group(1)[0] != "`" or "`" not in marker.group(2)):
+            fence = marker.group(1)
+            offset += len(line)
             continue
-        result.append(
-            PictureReference(
-                image=image,
-                markdown_link=match.group(0),
-                context=text[max(0, match.start() - 1500) : match.end() + 1500],
-                index=len(result) + 1,
-                start=match.start(),
-                end=match.end(),
+        for match in _IMAGE.finditer(line):
+            parsed = urlsplit(match.group(1))
+            if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
+                continue
+            image = (root / unquote(parsed.path)).resolve()
+            if (
+                not image.is_relative_to(assets)
+                or not image.is_relative_to(root)
+                or not image.is_file()
+            ):
+                continue
+            start = offset + match.start()
+            end = offset + match.end()
+            result.append(
+                PictureReference(
+                    image=image,
+                    markdown_link=match.group(0),
+                    context=text[max(0, start - 1500) : end + 1500],
+                    index=len(result) + 1,
+                    start=start,
+                    end=end,
+                )
             )
-        )
+        offset += len(line)
     return result
 
 

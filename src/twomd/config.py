@@ -85,6 +85,19 @@ class NetworkSettings(BaseModel):
         return value
 
 
+class MCPSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    working_directory: str = ""
+
+    @model_validator(mode="after")
+    def require_working_directory(self):
+        if self.enabled and not self.working_directory.strip():
+            raise ValueError("Selecciona el directorio permitido para MCP.")
+        return self
+
+
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -93,6 +106,7 @@ class Settings(BaseModel):
     models_directory: str = ""
     ai: AISettings = Field(default_factory=AISettings)
     network: NetworkSettings = Field(default_factory=NetworkSettings)
+    mcp: MCPSettings = Field(default_factory=MCPSettings)
 
 
 def settings_path() -> Path:

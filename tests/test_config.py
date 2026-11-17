@@ -17,6 +17,7 @@ def test_settings_round_trip(tmp_path):
         "models_directory",
         "ai",
         "network",
+        "mcp",
     }
 
 

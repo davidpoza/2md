@@ -55,14 +55,12 @@ las dependencias resueltas; la distribución todavía no está verificada.
 
 ### Empaquetado de desarrollo
 
-`scripts\build.ps1` genera dos distribuciones: `dist\2MD\2MD.exe`, dentro de una
-carpeta portable, y `dist\2MD.exe`, un único archivo. La carpeta debe copiarse
-completa, pero evita la extracción de `--onefile` al arrancar.
+`scripts\build.ps1` genera únicamente la carpeta portable `dist\2MD`, con
+`2MD.exe` y `2MD-MCP.exe`. Ambos comparten sus dependencias y la carpeta debe
+copiarse completa. El script no elimina un `dist\2MD.exe` antiguo que ya exista.
 
 ```powershell
 .\scripts\build.ps1
-.\scripts\build.ps1 -Format OneDir
-.\scripts\build.ps1 -Format OneFile
 ```
 
 En compilaciones posteriores puede añadirse `-ReuseMermaid` para reutilizar el
@@ -98,6 +96,39 @@ Copy-Item (Get-Command node.exe).Source tools\mermaid\runtime\node.exe
 
 La preparación descarga componentes en el equipo de desarrollo, no durante la
 conversión. No se debe deshabilitar la validación de certificados para las descargas.
+
+### MCP local
+
+En Configuración → MCP se puede activar el servidor y seleccionar el directorio
+absoluto permitido. También hay que seleccionar una carpeta de destino en la
+ventana principal. El MCP se ejecuta por `stdio`, sin URL ni token y sin necesidad
+de abrir la interfaz. Cada solicitud comprueba la configuración vigente, resuelve
+la ruta y solo admite archivos PDF y DOCX dentro del directorio permitido.
+
+La herramienta `leer_documento` devuelve el Markdown, la ruta del archivo generado
+y las advertencias. Las imágenes y demás archivos se guardan en la carpeta de
+destino; el original no se modifica. No utiliza IA ni OCR. El proceso se ejecuta
+con los permisos del usuario: la restricción de directorio no sustituye los
+permisos del sistema ni constituye un aislamiento frente a otros procesos locales.
+
+Ejemplo de configuración de OpenCode, ajustando la ruta a la carpeta portable:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "2md": {
+        "type": "local",
+        "command": ["C:\\ruta\\2MD\\2MD-MCP.exe"]
+      }
+    }
+  }
+}
+```
+
+La integración MCP y la distribución portable aún deben verificarse con el
+ejecutable generado y un cliente real en Windows limpio.
 
 ## Viabilidad y decisiones pendientes
 
@@ -149,10 +180,9 @@ verificar el conjunto de dependencias en Windows x64 antes de fijar sus versione
   responsiva, pero la interrupción de una operación Docling en curso depende de
   sus APIs; no se garantiza una cancelación inmediata. La memoria y los modelos
   compartidos impondrán límites a la concurrencia que deberán medirse.
-- **Un solo EXE.** Es un objetivo, no un resultado validado. PyInstaller extrae
-  temporalmente los recursos de `--onefile`; modelos y navegador pueden implicar
-  un ejecutable muy grande, arranque lento y restricciones corporativas. La
-  configuración y caché permanecerán fuera del directorio del ejecutable.
+- **Distribución portable.** Los dos ejecutables comparten una carpeta de
+  dependencias; hay que verificar ambos en Windows limpio. La configuración
+  permanece fuera de la carpeta de la aplicación.
 
 ### Fuentes
 

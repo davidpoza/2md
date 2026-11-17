@@ -1,6 +1,4 @@
 param(
-    [ValidateSet("Both", "OneDir", "OneFile")]
-    [string]$Format = "Both",
     [switch]$ReuseMermaid,
     [string]$OutputDirectory = ""
 )
@@ -11,8 +9,6 @@ $root = Split-Path -Parent $PSScriptRoot
 $models = Join-Path $root "resources\models"
 $mermaid = Join-Path $root "tools\mermaid"
 $mermaidArchive = Join-Path $root "build\mermaid-runtime.zip"
-$layout = Join-Path $models "docling-project--docling-layout-heron"
-$tables = Join-Path $models "docling-project--docling-models"
 if (-not $OutputDirectory) {
     $OutputDirectory = Join-Path $root "dist"
 }
@@ -61,43 +57,16 @@ try {
             throw "No se pudieron agrupar los recursos de Mermaid."
         }
     }
-    $common = @(
-        "--noconfirm", "--windowed", "--name", "2MD", "--paths", "src",
-        "--specpath", (Join-Path $root "build"),
+    $arguments = @(
+        "--noconfirm",
         "--workpath", (Join-Path $root "build\pyinstaller"),
         "--distpath", $OutputDirectory,
-        "--collect-all", "docling",
-        "--collect-all", "docling_core",
-        "--collect-all", "docling_parse",
-        "--collect-all", "docling_ibm_models",
-        "--copy-metadata", "torch",
-        "--collect-all", "keyring",
-        "--collect-all", "win32ctypes",
-        "--add-data", "$mermaidArchive;twomd\resources"
+        (Join-Path $root "scripts\portable.spec")
     )
-    $layoutDestination = "twomd\resources\models\docling-project--docling-layout-heron"
-    foreach ($file in @("config.json", "preprocessor_config.json", "model.safetensors", "README.md", "docling_heron_400.png")) {
-        $path = Join-Path $layout $file
-        if (Test-Path -LiteralPath $path -PathType Leaf) {
-            $common += @("--add-data", "$path;$layoutDestination")
-        }
-    }
-    $tableDestination = "twomd\resources\models\docling-project--docling-models"
-    $common += @(
-        "--add-data", "$(Join-Path $tables 'README.md');$tableDestination",
-        "--add-data", "$(Join-Path $tables 'model_artifacts\tableformer\accurate');$tableDestination\model_artifacts\tableformer\accurate"
-    )
-    $formats = switch ($Format) {
-        "Both" { @("--onedir", "--onefile") }
-        "OneDir" { @("--onedir") }
-        "OneFile" { @("--onefile") }
-    }
-    foreach ($mode in $formats) {
-        Write-Host "Iniciando PyInstaller $mode..."
-        & uv run --python 3.12 --group package pyinstaller @common $mode scripts\entrypoint.py
-        if ($LASTEXITCODE -ne 0) {
-            throw "PyInstaller $mode termino con el codigo $LASTEXITCODE."
-        }
+    Write-Host "Iniciando PyInstaller para la carpeta portable..."
+    & uv run --python 3.12 --group package pyinstaller @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "PyInstaller termino con el codigo $LASTEXITCODE."
     }
 }
 finally {

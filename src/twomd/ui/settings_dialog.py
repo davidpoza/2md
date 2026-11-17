@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic import ValidationError
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Slot
 from PySide6.QtWidgets import (
@@ -19,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from twomd.ai import check_connection, safe_error
-from twomd.config import AISettings, NetworkSettings, Settings
+from twomd.config import AISettings, MCPSettings, NetworkSettings, Settings
 from twomd.credentials import get_secret
 from twomd.network import create_http_client
 
@@ -195,6 +197,24 @@ class SettingsDialog(QDialog):
         form.addRow(test_network)
         tabs.addTab(network, "Red y proxy")
 
+        mcp = QWidget()
+        form = QFormLayout(mcp)
+        self.mcp_enabled = QCheckBox("Activar MCP local por stdio")
+        self.mcp_enabled.setChecked(settings.mcp.enabled)
+        self.mcp_directory = QLineEdit(settings.mcp.working_directory)
+        choose_mcp_directory = QPushButton("Seleccionar directorio permitido")
+        choose_mcp_directory.clicked.connect(self.choose_mcp_directory)
+        form.addRow(self.mcp_enabled)
+        form.addRow("Directorio permitido:", self.mcp_directory)
+        form.addRow(choose_mcp_directory)
+        form.addRow(
+            QLabel(
+                "Los clientes locales podrán leer documentos de este directorio y sus "
+                "subcarpetas. Los resultados se guardan en la carpeta de destino."
+            )
+        )
+        tabs.addTab(mcp, "MCP")
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
@@ -215,6 +235,11 @@ class SettingsDialog(QDialog):
         folder = QFileDialog.getExistingDirectory(self, "Seleccionar modelos Docling")
         if folder:
             self.models_directory.setText(folder)
+
+    def choose_mcp_directory(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Seleccionar directorio permitido")
+        if folder:
+            self.mcp_directory.setText(folder)
 
     def values(self) -> Settings:
         ai = AISettings(
@@ -242,6 +267,10 @@ class SettingsDialog(QDialog):
                 "models_directory": self.models_directory.text().strip(),
                 "ai": ai,
                 "network": network,
+                "mcp": MCPSettings(
+                    enabled=self.mcp_enabled.isChecked(),
+                    working_directory=self.mcp_directory.text().strip(),
+                ),
             }
         )
 
@@ -252,6 +281,12 @@ class SettingsDialog(QDialog):
             settings = self.values()
         except (ValueError, ValidationError):
             QMessageBox.warning(self, "Configuración", "Revisa los valores de configuración.")
+            return
+        directory = Path(settings.mcp.working_directory)
+        if settings.mcp.enabled and (not directory.is_absolute() or not directory.is_dir()):
+            QMessageBox.warning(
+                self, "MCP", "Selecciona un directorio permitido absoluto y existente."
+            )
             return
         if settings.ai.enabled and not self.api_key.text():
             try:

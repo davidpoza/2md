@@ -12,6 +12,7 @@ dependencies = [
     "docling-core==2.106.0",
     "httpx==0.28.1",
     "keyring==25.7.0",
+    "mcp==2.3.0",
     "openai==1.109.1",
     "pydantic>=2.10,<3",
     "PySide6>=6.8,<7",

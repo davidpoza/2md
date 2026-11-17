@@ -75,3 +75,12 @@ def test_only_local_assets_are_reviewable(output):
         encoding="utf-8",
     )
     assert len(picture_references(output)) == 1
+
+
+def test_images_inside_code_blocks_are_not_reviewed(output):
+    output.write_text(
+        "![local](assets/image.png)\n\n```mermaid\n"
+        'flowchart LR\nA["![ejemplo](assets/image.png)"]\n```\n',
+        encoding="utf-8",
+    )
+    assert len(picture_references(output)) == 1
