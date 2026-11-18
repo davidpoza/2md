@@ -21,8 +21,8 @@ la arquitectura ni obliga a mantener la implementación actual.
 - El usuario elige la carpeta de destino. Una salida anterior solo se reutiliza
   si corresponde al mismo origen, contenido, versión y configuración, y sus
   archivos siguen íntegros. No se sobrescribe una carpeta existente que no pueda
-  validarse como resultado reutilizable. Las salidas de la implementación Python
-  anterior no se reutilizan automáticamente ni se sobrescriben.
+  validarse como resultado reutilizable. Las salidas de versiones anteriores no
+  se reutilizan automáticamente ni se sobrescriben.
 - Cada resultado se organiza en un subdirectorio propio del destino con su
   Markdown y `conversion-report.json`; las imágenes se conservan en `assets`
   y los diagramas guardados en `diagrams`.
@@ -224,9 +224,8 @@ de verificación.
 - Una conversión fallida puede dejar una carpeta de salida incompleta. Como no se
   sobrescriben salidas existentes no reutilizables, esa carpeta puede impedir un
   nuevo intento automático con la misma salida.
-- La implementación Python anterior solo devolvía rutas y referencias a imágenes.
-  La reimplementación Node incorpora recursos MCP binarios para acceder a ellas;
-  su interoperabilidad con clientes reales todavía requiere verificación.
+- El acceso a las imágenes mediante recursos MCP binarios todavía requiere
+  verificar la interoperabilidad con clientes reales.
 - No está garantizada la extracción fiel de todos los elementos de Word, formas,
   diagramas vectoriales, tablas complejas ni el orden de lectura de todos los
   documentos. Deben probarse documentos representativos antes de prometer esa
