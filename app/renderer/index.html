@@ -13,13 +13,16 @@
   <div id="drop" tabindex="0">Arrastra aquí archivos PDF, DOCX o carpetas</div>
   <div class="toolbar"><button id="files">Añadir archivos</button><button id="folder">Añadir carpeta</button></div>
   <div class="table-scroll"><table><thead><tr><th>Seleccionar</th><th>Documento</th><th>Estado</th><th>Progreso</th></tr></thead><tbody id="documents"></tbody></table></div>
-  <div class="toolbar"><label>Destino: <output id="destination"></output></label><button id="choose-destination">Seleccionar</button></div>
+  <div class="toolbar">
+    <label>Destino: <output id="destination"></output></label>
+    <button id="choose-destination">Seleccionar</button>
+    <button id="open-destination" disabled>Abrir carpeta destino</button>
+  </div>
   <label><input id="automatic" type="checkbox"> Detectar diagramas y generar Mermaid automáticamente con IA (requiere consentimiento por lote)</label>
   <progress id="progress" max="1" value="0"></progress>
   <div class="toolbar">
     <button id="start" class="primary">Iniciar</button><button id="cancel" disabled>Cancelar</button>
     <button id="retry">Reintentar fallidos</button><button id="review">Revisar diagramas</button>
-    <button id="open-destination" disabled>Abrir carpeta destino</button>
   </div>
   <label for="activity">Actividad</label><textarea id="activity" readonly rows="5" aria-live="polite"></textarea>
   <dialog id="settings-dialog">

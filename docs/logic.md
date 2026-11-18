@@ -26,11 +26,11 @@ la arquitectura ni obliga a mantener la implementación actual.
 - Cada resultado se organiza en un subdirectorio propio del destino con su
   Markdown y `conversion-report.json`; las imágenes se conservan en `assets`
   y los diagramas guardados en `diagrams`.
-- **Abrir carpeta destino**, junto a **Revisar diagramas**, abre en el explorador
-  la carpeta de destino configurada que aparece en la ventana principal, no la
-  subcarpeta de un documento. Está desactivado mientras no haya un destino
-  seleccionado y se puede utilizar durante un lote. Los fallos al abrir se
-  notifican al usuario.
+- **Abrir carpeta destino**, junto al botón **Seleccionar** de la fila de destino,
+  abre en el explorador la carpeta de destino configurada que aparece en la
+  ventana principal, no la subcarpeta de un documento. Está desactivado mientras
+  no haya un destino seleccionado y se puede utilizar durante un lote. Los fallos
+  al abrir se notifican al usuario.
 - Las conversiones completadas generan un informe con el origen, estado,
   advertencias, versiones, duración y archivos de salida. Los errores se muestran
   en la aplicación; actualmente no generan un informe individual de conversión.
