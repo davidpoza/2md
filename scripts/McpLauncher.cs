@@ -5,6 +5,18 @@ using System.Threading.Tasks;
 
 internal static class McpLauncher
 {
+    private static async Task ForwardAsync(Stream source, Stream destination)
+    {
+        var buffer = new byte[8192];
+        int count;
+        while ((count = await source.ReadAsync(buffer, 0, buffer.Length)) != 0)
+        {
+            await destination.WriteAsync(buffer, 0, count);
+            // A protocol message must reach its reader before we wait for the next one.
+            await destination.FlushAsync();
+        }
+    }
+
     private static int Main()
     {
         try
@@ -24,7 +36,7 @@ internal static class McpLauncher
             start.EnvironmentVariables["ELECTRON_RUN_AS_NODE"] = "1";
             using (var child = Process.Start(start))
             {
-                Task input = Console.OpenStandardInput().CopyToAsync(child.StandardInput.BaseStream);
+                Task input = Task.Run(() => ForwardAsync(Console.OpenStandardInput(), child.StandardInput.BaseStream));
                 input.ContinueWith(task =>
                 {
                     if (task.IsFaulted)
@@ -32,8 +44,8 @@ internal static class McpLauncher
                     try { child.StandardInput.Close(); }
                     catch (InvalidOperationException) { }
                 });
-                Task output = child.StandardOutput.BaseStream.CopyToAsync(Console.OpenStandardOutput());
-                Task errors = child.StandardError.BaseStream.CopyToAsync(Console.OpenStandardError());
+                Task output = Task.Run(() => ForwardAsync(child.StandardOutput.BaseStream, Console.OpenStandardOutput()));
+                Task errors = Task.Run(() => ForwardAsync(child.StandardError.BaseStream, Console.OpenStandardError()));
                 child.WaitForExit();
                 Task.WaitAll(output, errors);
                 return child.ExitCode;
