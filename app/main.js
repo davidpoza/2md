@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile, stat } from 'node:fs/promises';
@@ -17,6 +17,7 @@ app.commandLine.appendSwitch('disable-background-networking');
 let window;
 let settings;
 const validations = new Map();
+let reviewDocument = null;
 const notify = event => { if (window && !window.isDestroyed()) window.webContents.send('2md-event', event); };
 const batch = new Batch(notify, renderMermaid);
 let interaction = false;
@@ -36,6 +37,7 @@ async function select(properties, filters) {
   return result.canceled ? [] : result.filePaths;
 }
 async function referenceFor(id, index, revision) {
+  if (reviewDocument !== id) throw new Error('Vuelve a abrir la revisión de este documento.');
   const row = batch.rows.find(item => item.id === id);
   if (!row?.outcome) throw new Error('Selecciona un documento convertido.');
   const references = await pictureReferences(row.outcome.markdown);
@@ -57,6 +59,15 @@ async function dispatch(method, ...args) {
       const [folder] = await select(['openDirectory']);
       if (folder) settings = await saveSettings({ ...settings, output_directory: folder });
       return settings.output_directory;
+    }
+    case 'open-destination': {
+      const destination = settings.output_directory;
+      if (!destination) throw new Error('Selecciona primero una carpeta de destino.');
+      if (!path.isAbsolute(destination) || !(await stat(destination)).isDirectory())
+        throw new Error('La carpeta de destino debe ser un directorio absoluto existente.');
+      const error = await shell.openPath(destination);
+      if (error) throw new Error(`No se pudo abrir la carpeta de destino: ${error}`);
+      return;
     }
     case 'choose-directory': return (await select(['openDirectory']))[0];
     case 'choose-ca': return (await select(['openFile'], [{ name: 'Certificados', extensions: ['pem', 'crt'] }]))[0];
@@ -103,14 +114,26 @@ async function dispatch(method, ...args) {
       return;
     case 'review': {
       idle();
-      const row = batch.rows.find(item => item.id === args[0]);
-      if (!row?.outcome) throw new Error('Selecciona un documento convertido.');
-      const references = await pictureReferences(row.outcome.markdown);
-      return await Promise.all(references.map(async reference => ({
-        index: reference.index, revision: reference.revision, stored: reference.stored,
-        image: `data:${mimeType(reference.image)};base64,${(await readFile(reference.image)).toString('base64')}`,
-      })));
+      interaction = true;
+      try {
+        const row = batch.rows.find(item => item.id === args[0]);
+        if (!row?.outcome) throw new Error('Selecciona un documento convertido.');
+        const references = await pictureReferences(row.outcome.markdown);
+        const pictures = await Promise.all(references.map(async reference => ({
+          index: reference.index, name: path.basename(reference.image),
+          revision: reference.revision, stored: reference.stored,
+          image: `data:${mimeType(reference.image)};base64,${(await readFile(reference.image)).toString('base64')}`,
+        })));
+        validations.clear();
+        reviewDocument = row.id;
+        return pictures;
+      } finally { interaction = false; }
     }
+    case 'close-review':
+      idle();
+      validations.clear();
+      reviewDocument = null;
+      return;
     case 'propose': {
       idle();
       interaction = true;
@@ -118,7 +141,8 @@ async function dispatch(method, ...args) {
         const { reference } = await referenceFor(...args);
         if (!settings.ai.enabled) throw new Error('La IA está desactivada.');
         if (!await confirm(consentText(settings))) return null;
-        return await proposeDiagram(reference, settings, undefined, activity);
+        const proposal = await proposeDiagram(reference, settings, undefined, activity);
+        return { ...proposal, model: proposal.fiable ? settings.ai.model : null };
       } finally { interaction = false; }
     }
     case 'validate': {
@@ -127,10 +151,16 @@ async function dispatch(method, ...args) {
       try {
         const { row, reference } = await referenceFor(...args);
         const code = args[3];
+        const model = args[4] ?? null;
+        if (model !== null && (typeof model !== 'string' || model.length > 1024))
+          throw new Error('Modelo de la propuesta no válido.');
         const svg = await renderMermaid(code);
         const token = randomUUID();
-        validations.clear();
-        validations.set(token, { markdown: row.outcome.markdown, reference, code });
+        for (const [previousToken, validation] of validations) {
+          if (validation.markdown === row.outcome.markdown && validation.reference.index === reference.index)
+            validations.delete(previousToken);
+        }
+        validations.set(token, { markdown: row.outcome.markdown, reference, code, model });
         return { token, svg };
       } finally { interaction = false; }
     }
@@ -141,9 +171,17 @@ async function dispatch(method, ...args) {
       interaction = true;
       try {
         if (!await confirm('Confirma que has comparado visualmente el diagrama renderizado con la imagen original y que representa fielmente su contenido. Se conservará la imagen original.')) return false;
-        await storeDiagram(validation.markdown, validation.reference, validation.code, settings.ai.model || null);
-        validations.clear();
-        return true;
+        const revision = validation.reference.revision;
+        await storeDiagram(validation.markdown, validation.reference, validation.code, validation.model);
+        const references = await pictureReferences(validation.markdown);
+        for (const [token, saved] of validations) {
+          const current = references.find(reference => reference.index === saved.reference.index);
+          if (saved.markdown === validation.markdown && current?.image === saved.reference.image &&
+              saved.reference.revision === revision) {
+            saved.reference = current;
+          } else validations.delete(token);
+        }
+        return references.map(reference => ({ index: reference.index, revision: reference.revision, stored: reference.stored }));
       } finally { interaction = false; }
     }
     default: throw new Error('Operación no disponible.');

@@ -1,22 +1,44 @@
 import path from 'node:path';
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { atomicWrite } from './config.js';
 import { confined, outputHashes, readJson, sha256 } from './files.js';
 
 const pendingBlock = (index, code) => `\n\n<!-- 2MD:mermaid-pendiente:${index} -->\n> **Diagrama generado por IA: pendiente de revisión.**\n\n\`\`\`mermaid\n${code}\n\`\`\`\n<!-- /2MD:mermaid-pendiente:${index} -->`;
 const acceptedBlock = code => `\n\n\`\`\`mermaid\n${code}\n\`\`\``;
-export async function pictureReferences(markdown) {
-  const text = await readFile(markdown, 'utf8');
-  const root = path.dirname(markdown);
-  const result = [];
+const imageLink = /!\[[^\]\n]*\]\(([^)\n]+)\)/g;
+function diagramAfter(text, index) {
+  const pending = new RegExp(`^\\n\\n<!-- 2MD:mermaid-pendiente:${index} -->\\n> \\*\\*Diagrama generado por IA: pendiente de revisión\\.\\*\\*\\n\\n\`\`\`mermaid\\n([\\s\\S]*?)\\n\`\`\`\\n<!-- /2MD:mermaid-pendiente:${index} -->`).exec(text);
+  const accepted = /^\n\n```mermaid\n([\s\S]*?)\n```/.exec(text);
+  const match = pending || accepted;
+  return match ? { code: match[1], pending: Boolean(pending), block: match[0] } : null;
+}
+function* proseLines(text) {
   let offset = 0;
   let fence = null;
   for (const line of text.match(/[^\n]*\n|[^\n]+$/g) || []) {
+    const start = offset;
+    offset += line.length;
     const marker = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)/.exec(line);
     if (fence) {
       if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) fence = null;
     } else if (marker) { fence = marker[1]; }
-    else for (const match of line.matchAll(/!\[[^\]\n]*\]\(([^)\n]+)\)/g)) {
+    else yield { line, start };
+  }
+}
+function contextText(text) {
+  let context = '';
+  for (const { line } of proseLines(text)) {
+    if (/^(?:<!-- \/?2MD:mermaid-pendiente:\d+ -->|> \*\*Diagrama generado por IA: pendiente de revisión\.\*\*)\r?\n?$/.test(line)) continue;
+    context += line.replace(imageLink, '');
+  }
+  return context;
+}
+export async function pictureReferences(markdown) {
+  const text = await readFile(markdown, 'utf8');
+  const root = path.dirname(markdown);
+  const result = [];
+  for (const { line, start: offset } of proseLines(text)) {
+    for (const match of line.matchAll(imageLink)) {
       if (/^[a-z][a-z\d+.-]*:|^[/\\]{2}|[?#]/i.test(match[1])) continue;
       const relative = decodeURIComponent(match[1]);
       if (!relative.replaceAll('\\', '/').startsWith('assets/')) continue;
@@ -24,15 +46,16 @@ export async function pictureReferences(markdown) {
       const start = offset + match.index;
       const end = start + match[0].length;
       const index = result.length + 1;
-      let stored = null;
-      try {
-        const code = (await readFile(await confined(root, `diagrams/diagram-${String(index).padStart(3, '0')}.mmd`), 'utf8')).trim();
-        if (text.slice(end).startsWith(pendingBlock(index, code))) stored = { code, pending: true };
-        else if (text.slice(end).startsWith(acceptedBlock(code))) stored = { code, pending: false };
-      } catch (error) { if (error.code !== 'ENOENT') throw error; }
-      result.push({ image, index, start, end, context: text.slice(Math.max(0, start - 1500), end + 1500), stored, revision: sha256(text) });
+      const stored = diagramAfter(text.slice(end), index);
+      result.push({ image, index, start, end, stored, revision: sha256(text) });
     }
-    offset += line.length;
+  }
+  for (const [position, reference] of result.entries()) {
+    const previous = result[position - 1];
+    const next = result[position + 1];
+    const before = contextText(text.slice(previous ? previous.end + (previous.stored?.block.length || 0) : 0, reference.start));
+    const after = contextText(text.slice(reference.end + (reference.stored?.block.length || 0), next?.start ?? text.length));
+    reference.context = `${before.slice(-1500)}\n[Imagen seleccionada]\n${after.slice(0, 1500)}`;
   }
   return result;
 }
@@ -51,16 +74,18 @@ export async function storeDiagram(markdown, reference, input, model, pending = 
   const diagrams = await confined(root, 'diagrams');
   const file = path.join(diagrams, `diagram-${String(reference.index).padStart(3, '0')}.mmd`);
   const previous = current.stored;
-  if (pending && previous) throw new Error('Ya existe un diagrama para esta imagen.');
-  const old = previous ? previous.pending ? pendingBlock(current.index, previous.code) : acceptedBlock(previous.code) : '';
+  let previousFile = null;
+  try {
+    if (!(await lstat(file)).isFile()) throw new Error('El destino Mermaid debe ser un archivo regular, no un enlace.');
+    previousFile = await readFile(await confined(diagrams, file));
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (pending && (previous || previousFile !== null)) throw new Error('Ya existe un diagrama para esta imagen.');
+  const old = previous?.block || '';
   const block = pending ? pendingBlock(current.index, code) : acceptedBlock(code);
   let written = false;
   try {
-    if (previous) await atomicWrite(await confined(root, file), `${code}\n`);
-    else {
-      const { writeFile } = await import('node:fs/promises');
-      await writeFile(file, `${code}\n`, { flag: 'wx' });
-    }
+    if (pending) await writeFile(file, `${code}\n`, { flag: 'wx' });
+    else await atomicWrite(file, `${code}\n`);
     written = true;
     await atomicWrite(markdown, text.slice(0, current.end) + block + text.slice(current.end + old.length));
     if (!previous) { report.diagramas++; report.diagramas_convertidos++; }
@@ -72,7 +97,7 @@ export async function storeDiagram(markdown, reference, input, model, pending = 
     if (written) {
       try {
         await atomicWrite(markdown, text);
-        if (previous) await atomicWrite(file, `${previous.code}\n`);
+        if (previousFile !== null) await atomicWrite(file, previousFile);
         else await rm(file);
       } catch { throw new Error('La revisión falló y no pudo restaurarse completamente; comprueba la salida.'); }
     }

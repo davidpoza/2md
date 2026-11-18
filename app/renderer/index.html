@@ -19,34 +19,91 @@
   <div class="toolbar">
     <button id="start" class="primary">Iniciar</button><button id="cancel" disabled>Cancelar</button>
     <button id="retry">Reintentar fallidos</button><button id="review">Revisar diagramas</button>
+    <button id="open-destination" disabled>Abrir carpeta destino</button>
   </div>
   <label for="activity">Actividad</label><textarea id="activity" readonly rows="5" aria-live="polite"></textarea>
   <dialog id="settings-dialog">
-    <form id="settings-form">
+    <form id="settings-form" novalidate>
       <h2>Configuración</h2>
-      <div id="settings-fields"></div>
-      <p>Las credenciales se guardan exclusivamente en el almacén seguro de Windows. Dejar vacías conserva las existentes.</p>
-      <label>API Key<input id="api-key" type="password" autocomplete="off"></label>
-      <label>Contraseña proxy<input id="proxy-password" type="password" autocomplete="off"></label>
-      <label><input id="show-secrets" type="checkbox"> Mostrar las credenciales introducidas</label>
-      <p>NTLM y Kerberos no están implementados. Nunca se desactiva la validación TLS.</p>
-      <div class="toolbar"><button type="button" id="check-network">Probar red</button><button type="button" id="check-text">Probar modelo</button><button type="button" id="check-vision">Comprobar visión</button></div>
-      <p>Las pruebas utilizan la configuración guardada. Guarda los cambios antes de probar.</p>
+      <div id="settings-tabs" class="settings-tabs" role="tablist" aria-label="Secciones de configuración">
+        <button type="button" id="tab-general" role="tab" aria-controls="settings-general" aria-selected="true">General</button>
+        <button type="button" id="tab-ai" role="tab" aria-controls="settings-ai" aria-selected="false" tabindex="-1">Inteligencia artificial</button>
+        <button type="button" id="tab-network" role="tab" aria-controls="settings-network" aria-selected="false" tabindex="-1">Red y proxy</button>
+        <button type="button" id="tab-mcp" role="tab" aria-controls="settings-mcp" aria-selected="false" tabindex="-1">MCP local</button>
+        <button type="button" id="tab-credentials" role="tab" aria-controls="settings-credentials" aria-selected="false" tabindex="-1">Credenciales</button>
+      </div>
+      <section id="settings-general" class="settings-panel" role="tabpanel" aria-labelledby="tab-general" tabindex="0">
+        <div id="settings-general-fields"></div>
+      </section>
+      <section id="settings-ai" class="settings-panel" role="tabpanel" aria-labelledby="tab-ai" tabindex="0" hidden>
+        <div id="settings-ai-fields"></div>
+        <div class="toolbar"><button type="button" id="check-text">Probar modelo</button><button type="button" id="check-vision">Comprobar visión</button></div>
+        <p>Las pruebas utilizan la configuración guardada. Guarda los cambios antes de probar.</p>
+      </section>
+      <section id="settings-network" class="settings-panel" role="tabpanel" aria-labelledby="tab-network" tabindex="0" hidden>
+        <div id="settings-network-fields"></div>
+        <p>NTLM y Kerberos no están implementados. Nunca se desactiva la validación TLS.</p>
+        <div class="toolbar"><button type="button" id="check-network">Probar red</button></div>
+        <p>La prueba utiliza la configuración guardada. Guarda los cambios antes de probar.</p>
+      </section>
+      <section id="settings-mcp" class="settings-panel" role="tabpanel" aria-labelledby="tab-mcp" tabindex="0" hidden>
+        <div id="settings-mcp-fields"></div>
+      </section>
+      <section id="settings-credentials" class="settings-panel" role="tabpanel" aria-labelledby="tab-credentials" tabindex="0" hidden>
+        <p>Las credenciales se guardan exclusivamente en el almacén seguro de Windows. Dejar vacías conserva las existentes.</p>
+        <label>API Key<input id="api-key" type="password" autocomplete="off"></label>
+        <label>Contraseña proxy<input id="proxy-password" type="password" autocomplete="off"></label>
+        <label class="checkbox-label"><input id="show-secrets" type="checkbox"> Mostrar las credenciales introducidas</label>
+      </section>
       <div class="toolbar"><button type="submit" class="primary">Guardar</button><button type="button" id="close-settings">Cancelar</button></div>
     </form>
   </dialog>
   <dialog id="review-dialog">
-    <h2>Revisión de diagramas</h2>
-    <div class="toolbar"><label>Imagen <select id="pictures"></select></label><output id="diagram-status"></output><button id="fullscreen">Pantalla completa / ventana</button><button id="close-review">Cerrar</button></div>
-    <p>La validación técnica no garantiza fidelidad. Compara ambas vistas antes de aceptar. La imagen original se conserva.</p>
-    <div class="comparison">
-      <section><h3>Original</h3><div class="image-scroll"><img id="original" alt="Imagen original"></div></section>
-      <section><h3>Mermaid validado</h3><div class="image-scroll"><img id="preview" alt="Vista previa del diagrama"></div></section>
+    <div class="review-content">
+      <header><h2>Revisión de diagramas</h2><button id="close-review">Cerrar</button></header>
+      <div class="diagram-table">
+        <table aria-label="Diagramas del documento">
+          <thead><tr><th>Diagrama</th><th>Imagen</th><th>Estado</th></tr></thead>
+          <tbody id="pictures"></tbody>
+        </table>
+      </div>
+      <p class="review-notice">La validación técnica no garantiza fidelidad. Compara ambas vistas antes de aceptar. La imagen original se conserva.</p>
+      <div class="comparison">
+        <section id="original-viewer" class="diagram-viewer"></section>
+        <section id="preview-viewer" class="diagram-viewer"></section>
+      </div>
+      <output id="diagram-status" aria-live="polite"></output>
+      <label for="mermaid-code">Mermaid editable</label><textarea id="mermaid-code" rows="5" spellcheck="false"></textarea>
+      <div class="toolbar review-actions"><button id="propose">Solicitar propuesta IA</button><button id="validate">Validar y renderizar</button><button id="accept" class="primary" disabled>He comparado ambas vistas: aceptar</button></div>
     </div>
-    <label>Zoom de ambas vistas<input id="zoom" type="range" min="25" max="400" value="100" step="25"></label>
-    <label for="mermaid-code">Mermaid editable</label><textarea id="mermaid-code" rows="9" spellcheck="false"></textarea>
-    <div class="toolbar"><button id="propose">Solicitar propuesta IA</button><button id="validate">Validar y renderizar</button><button id="accept" class="primary" disabled>He comparado ambas vistas: aceptar</button></div>
+    <div class="loading-overlay" hidden role="status" aria-live="polite"><div class="spinner" aria-hidden="true"></div><p class="loading-message"></p></div>
   </dialog>
+  <dialog id="viewer-dialog">
+    <div class="review-content">
+      <header><h2>Comparación ampliada</h2><button id="close-viewer">Cerrar (Esc)</button></header>
+      <div class="comparison">
+        <section id="original-expanded" class="diagram-viewer"></section>
+        <section id="preview-expanded" class="diagram-viewer"></section>
+      </div>
+      <p>Rueda: zoom bajo el cursor · Arrastrar: desplazar · + / -: zoom · 0: 100 % · F: ajustar · Esc: cerrar</p>
+    </div>
+    <div class="loading-overlay" hidden role="status" aria-live="polite"><div class="spinner" aria-hidden="true"></div><p class="loading-message"></p></div>
+  </dialog>
+  <template id="image-viewer-template">
+    <h3 class="viewer-title"></h3>
+    <div class="viewer-toolbar" role="group" aria-label="Controles del visor">
+      <button type="button" data-action="out" aria-label="Alejar">−</button>
+      <button type="button" data-action="in" aria-label="Acercar">+</button>
+      <button type="button" data-action="actual">100 %</button>
+      <button type="button" data-action="fit">Ajustar</button>
+      <button type="button" data-action="expand">Ampliar</button>
+      <output class="viewer-zoom" aria-live="off"></output>
+    </div>
+    <div class="image-viewport" tabindex="0">
+      <div class="image-canvas" hidden><img alt="" draggable="false" hidden></div>
+      <p class="viewer-placeholder">Sin previsualización</p>
+    </div>
+  </template>
   <script type="module" src="ui.js"></script>
 </body>
 </html>

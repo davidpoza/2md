@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('twomd', {
   chooseFiles: () => invoke('choose-files'),
   chooseFolder: () => invoke('choose-folder'),
   chooseDestination: () => invoke('choose-destination'),
+  openDestination: () => invoke('open-destination'),
   addDropped: files => invoke('add', Array.from(files, file => webUtils.getPathForFile(file))),
   saveSettings: (settings, secrets) => invoke('save-settings', settings, secrets),
   chooseDirectory: () => invoke('choose-directory'),
@@ -18,8 +19,9 @@ contextBridge.exposeInMainWorld('twomd', {
   start: (automatic, retry) => invoke('start', automatic, retry),
   cancel: () => invoke('cancel'),
   review: id => invoke('review', id),
+  closeReview: () => invoke('close-review'),
   propose: (id, index, revision) => invoke('propose', id, index, revision),
-  validate: (id, index, revision, code) => invoke('validate', id, index, revision, code),
+  validate: (id, index, revision, code, model) => invoke('validate', id, index, revision, code, model),
   accept: token => invoke('accept', token),
   fullscreen: enabled => invoke('fullscreen', enabled),
   onEvent: listener => {

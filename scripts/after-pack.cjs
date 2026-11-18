@@ -3,6 +3,7 @@ const { execFileSync } = require('node:child_process');
 
 module.exports = async context => {
   if (context.electronPlatformName !== 'win32') throw new Error('La distribución portable requiere Windows.');
+  if (context.targets.some(target => target.name === 'portable')) return;
   execFileSync('powershell.exe', [
     '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
     '-File', path.join(__dirname, 'build-launcher.ps1'),

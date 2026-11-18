@@ -7,6 +7,7 @@ __pycache__/
 build/
 dist/
 dist-node/
+dist-node-mcp/
 *.egg-info/
 resources/models/
 tools/mermaid/node_modules/
