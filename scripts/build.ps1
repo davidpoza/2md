@@ -17,8 +17,7 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
 Write-Warning "Empaquetado sin verificar funcionalmente: comprueba la distribucion en Windows limpio."
 Push-Location $root
 try {
-    $artifact = if ($Mcp) { "2MD" } else { "2MD.exe" }
-    $portable = Join-Path $OutputDirectory $artifact
+    $portable = Join-Path $OutputDirectory "2MD"
     $unpacked = Join-Path $OutputDirectory "win-unpacked"
     if ((Test-Path -LiteralPath $portable) -or (Test-Path -LiteralPath $unpacked)) {
         throw "La salida ya existe. Elige un OutputDirectory nuevo para no sobrescribirla."
@@ -32,18 +31,18 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "electron-builder termino con el codigo $LASTEXITCODE."
     }
+    if (-not (Test-Path -LiteralPath (Join-Path $unpacked "2MD.exe") -PathType Leaf)) {
+        throw "No se ha generado el runtime de la aplicacion."
+    }
+    if ($Mcp -and -not (Test-Path -LiteralPath (Join-Path $unpacked "2MD-MCP.exe") -PathType Leaf)) {
+        throw "No se ha generado el lanzador MCP."
+    }
+    Move-Item -LiteralPath $unpacked -Destination $portable
     if ($Mcp) {
-        if (-not (Test-Path -LiteralPath (Join-Path $unpacked "2MD-MCP.exe") -PathType Leaf)) {
-            throw "No se ha generado el lanzador MCP."
-        }
-        Move-Item -LiteralPath $unpacked -Destination $portable
         Write-Host "MCP generado en $portable. Copia la carpeta completa."
     }
     else {
-        if (-not (Test-Path -LiteralPath $portable -PathType Leaf)) {
-            throw "No se ha generado el EXE unico: $portable"
-        }
-        Write-Host "Aplicacion generada en $portable. Solo necesitas distribuir este EXE."
+        Write-Host "Aplicacion portable generada en $portable. Ejecuta 2MD.exe y copia la carpeta completa."
     }
 }
 finally {

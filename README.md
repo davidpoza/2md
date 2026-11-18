@@ -13,7 +13,8 @@ Requiere Windows x64, Node.js 22.19 o posterior y npm. Desde la raíz del proyec
 .\scripts\build.ps1
 ```
 
-Genera **`dist-node\2MD.exe`**. Para distribuir la aplicación basta con ese EXE.
+Genera **`dist-node\2MD\2MD.exe`**. Para distribuir la aplicación copia la carpeta
+`2MD` completa, incluidos sus recursos y DLL.
 El script instala las dependencias fijadas en `package-lock.json`.
 
 Para compilar MCP por separado (utiliza Windows PowerShell para su lanzador):

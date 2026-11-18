@@ -203,17 +203,18 @@ de verificación.
 
 ## Distribución
 
-- La aplicación gráfica se distribuye como un único EXE portable para Windows,
-  sin recursos externos junto a él ni instalación de Node, Python o Qt en destino.
-  Extrae sus dependencias a un directorio temporal independiente por ejecución y
-  el lanzador las elimina al cerrar normalmente. No requiere instalación ni
-  permisos de administrador; las preferencias y las credenciales conservan sus
-  ubicaciones habituales.
+- La aplicación gráfica se distribuye como carpeta portable para Windows, con
+  `2MD.exe`, sus recursos y dependencias nativas. Se debe copiar la carpeta
+  completa; el EXE no funciona de forma independiente.
+- El runtime se carga directamente desde esa carpeta, sin autoextraer la
+  distribución a un directorio temporal en cada arranque. No requiere instalación
+  ni permisos de administrador, ni Node, Python o Qt instalados en destino.
+  Las preferencias y las credenciales conservan sus ubicaciones habituales.
 - MCP se distribuye por separado, con su lanzador de consola y runtime en una
   carpeta completa, para mantener el transporte stdio.
-- La carpeta `win-unpacked` es un intermedio del empaquetado, no es necesaria
-  junto al EXE único de la aplicación. El lanzador MCP utiliza su propia copia
-  del Node integrado en Electron y mantiene stdout reservado al protocolo.
+- La carpeta `win-unpacked` es un intermedio que el script renombra a `2MD` al
+  completar el empaquetado. El lanzador MCP utiliza su propia copia del Node
+  integrado en Electron y mantiene stdout reservado al protocolo.
 - Desde las fuentes, con las dependencias instaladas, `npm start` abre la
   aplicación y `npm run mcp` inicia únicamente el servidor stdio con Node.
   MCP sigue requiriendo activación y directorios configurados previamente.

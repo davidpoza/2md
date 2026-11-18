@@ -12,8 +12,8 @@
     "start": "electron .",
     "mcp": "node app/mcp-entry.js",
     "test": "node --test tests-node/*.test.js",
-    "dist": "electron-builder --win portable --x64",
-    "dist:mcp": "electron-builder --win dir --x64"
+    "dist": "electron-builder --win dir --x64",
+    "dist:mcp": "electron-builder --win dir --x64 --config.afterPack=.\\scripts\\after-pack.cjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.25.3",
@@ -33,16 +33,10 @@
     "asar": false,
     "npmRebuild": false,
     "files": ["app/**/*", "package.json"],
-    "afterPack": "./scripts/after-pack.cjs",
     "win": {
-      "target": "portable",
+      "target": "dir",
       "executableName": "2MD",
       "signAndEditExecutable": false
-    },
-    "portable": {
-      "artifactName": "2MD.exe",
-      "requestExecutionLevel": "user",
-      "unpackDirName": true
     }
   }
 }

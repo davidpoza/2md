@@ -199,7 +199,7 @@ async function startApplication() {
     try {
       settings = await loadSettings();
       window = new BrowserWindow({
-        width: 1100, height: 800, minWidth: 850, minHeight: 650, title: '2MD',
+        width: 1100, height: 900, minWidth: 850, minHeight: 650, title: '2MD',
         webPreferences: { preload: path.join(directory, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true },
       });
       window.setMenu(null);
