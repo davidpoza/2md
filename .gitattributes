@@ -1,0 +1,2 @@
+# Vendored npm tarballs must stay byte-identical: their integrity is pinned in package-lock.json.
+vendor/** binary

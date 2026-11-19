@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { stat, realpath, mkdir, readFile, writeFile } from 'node:fs/promises';
+import './xberg-environment.js';
 import { extract } from '@xberg-io/xberg';
 import { confined, fileHash, outputHashes, readJson, sha256, supported } from './files.js';
 
@@ -58,6 +59,9 @@ export async function convertDocument(input, destination, { signal, variant = ''
     useCache: false, disableOcr: true, ocrEmbeddedImages: false, outputFormat: 'markdown',
     images: { extractImages: true, injectPlaceholders: true, runOcrOnImages: false, appendOcrText: false },
     pdfOptions: { extractImages: true, ocrInlineImages: false },
+    // Explicit so a changed Xberg default cannot enable layout models or follow document links.
+    useLayoutForMarkdown: false, extractionTimeoutSecs: 600,
+    url: { allowFileUris: false, crawl: { followDocumentUrls: false } },
   });
   signal?.throwIfAborted();
   await unchanged();

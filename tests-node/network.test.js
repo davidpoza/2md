@@ -4,7 +4,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { execFile, spawn, spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync, readlinkSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, readlinkSync } from 'node:fs';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { documentWithImage, wordDocumentWithImage } from './fixtures.js';
@@ -81,16 +81,17 @@ function run(command, args, env) {
   });
 }
 
-async function workspace(t) {
+// Both documents link to `link`, so following document URLs would reach it.
+async function workspace(t, link = 'https://example.com/linked.pdf') {
   const root = await mkdtemp(path.join(tmpdir(), '2md-network-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const output = path.join(root, 'output');
   await mkdir(output);
   const pdf = path.join(root, 'document.pdf');
   const docx = path.join(root, 'document.docx');
-  await writeFile(pdf, documentWithImage());
-  await writeFile(docx, wordDocumentWithImage());
-  return { output, documents: [pdf, docx] };
+  await writeFile(pdf, documentWithImage({ link }));
+  await writeFile(docx, wordDocumentWithImage({ link }));
+  return { root, output, documents: [pdf, docx] };
 }
 
 function assertConverted(result) {
@@ -101,15 +102,20 @@ function assertConverted(result) {
   for (const document of [pdf, docx]) assert.match(document.markdown, /\]\(assets\/image-0001\.png\)/);
 }
 
-test('conversion opens no network connections, even when proxies and model hubs are reachable', async t => {
+test('conversion opens no network connections, even when proxies, model hubs and linked documents are reachable', async t => {
   const { hits, url } = await trap(t);
-  const { output, documents } = await workspace(t);
+  const link = `${url}/linked.pdf`;
+  const { output, documents } = await workspace(t, link);
   const env = { ...process.env, NO_PROXY: '', no_proxy: '', HF_ENDPOINT: url, HF_HUB_OFFLINE: '', HF_HUB_DISABLE_TELEMETRY: '' };
   delete env.NAPI_RS_NATIVE_LIBRARY_PATH;
   for (const name of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY']) env[name] = env[name.toLowerCase()] = url;
   const result = await run(process.execPath, [child, output, ...documents], env);
   assertConverted(result);
-  assert.deepEqual(hits, [], 'Xberg intentó conectarse a través del proxy o del hub de modelos.');
+  // Xberg's SSRF policy rejects loopback targets before connecting, but reports the attempt as an error.
+  for (const document of JSON.parse(result.stdout)) {
+    assert.ok(!document.warnings.some(warning => warning.includes(link)), `Xberg intentó seguir un enlace del documento: ${document.warnings.join('; ')}`);
+  }
+  assert.deepEqual(hits, [], 'Xberg intentó conectarse a través del proxy, del hub de modelos o de un enlace del documento.');
   assert.deepEqual(result.sockets, [], 'El proceso de conversión abrió sockets de red.');
 });
 
@@ -122,4 +128,14 @@ test('conversion works without any network interface', async t => {
   const env = { ...process.env };
   delete env.NAPI_RS_NATIVE_LIBRARY_PATH;
   assertConverted(await run('unshare', ['-rn', process.execPath, child, output, ...documents], env));
+});
+
+test('conversion ignores a native library override for Xberg', async t => {
+  const { root, output, documents } = await workspace(t);
+  const marker = path.join(root, 'override-loaded');
+  const override = path.join(root, 'override.cjs');
+  await writeFile(override, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, '');\nthrow new Error('override');\n`);
+  const result = await run(process.execPath, [child, output, ...documents], { ...process.env, NAPI_RS_NATIVE_LIBRARY_PATH: override });
+  assertConverted(result);
+  assert.equal(existsSync(marker), false, 'Se cargó la biblioteca indicada por NAPI_RS_NATIVE_LIBRARY_PATH.');
 });

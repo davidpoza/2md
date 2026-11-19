@@ -3,7 +3,8 @@
 Aplicación para Windows y Linux que convierte PDF y DOCX a Markdown, con revisión de
 diagramas Mermaid y servidor MCP local. Implementada con Node.js, Electron,
 `@xberg-io/xberg` y `mermaid`. La información funcional está en
-[`docs/logic.md`](docs/logic.md).
+[`docs/logic.md`](docs/logic.md) y la de seguridad en
+[`docs/security.md`](docs/security.md).
 
 ## Compilar en Windows
 
