@@ -5,29 +5,7 @@ import { tmpdir } from 'node:os';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-
-function documentWithImage() {
-  const drawing = Buffer.from('q 20 0 0 20 30 30 cm /Im1 Do Q\nBT /F1 12 Tf 30 100 Td (Local document) Tj ET\n');
-  const objects = [
-    Buffer.from('<< /Type /Catalog /Pages 2 0 R >>'),
-    Buffer.from('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
-    Buffer.from('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 4 0 R >> /XObject << /Im1 5 0 R >> >> /Contents 6 0 R >>'),
-    Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'),
-    Buffer.concat([Buffer.from('<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length 3 >>\nstream\n'), Buffer.from([255, 0, 0]), Buffer.from('\nendstream')]),
-    Buffer.concat([Buffer.from(`<< /Length ${drawing.length} >>\nstream\n`), drawing, Buffer.from('endstream')]),
-  ];
-  const chunks = [Buffer.from('%PDF-1.4\n')];
-  const offsets = [0];
-  let offset = chunks[0].length;
-  for (const [index, object] of objects.entries()) {
-    offsets.push(offset);
-    const chunk = Buffer.concat([Buffer.from(`${index + 1} 0 obj\n`), object, Buffer.from('\nendobj\n')]);
-    chunks.push(chunk);
-    offset += chunk.length;
-  }
-  chunks.push(Buffer.from(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map(value => `${String(value).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${offset}\n%%EOF\n`));
-  return Buffer.concat(chunks);
-}
+import { documentWithImage } from './fixtures.js';
 
 test('MCP returns readable image resources, confines paths and honors current settings', async t => {
   const root = await mkdtemp(path.join(tmpdir(), '2md-mcp-'));
