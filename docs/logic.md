@@ -140,7 +140,8 @@ la arquitectura ni obliga a mantener la implementación actual.
 Abre la aplicación, selecciona un destino y activa MCP en **Configuración →
 MCP local**, indicando el directorio permitido. Guarda los cambios; después puedes
 cerrar la aplicación. El cliente inicia el lanzador MCP por stdio cuando lo
-necesita, sin URL ni token. Conserva completa su distribución separada.
+necesita, sin URL ni token. En Linux, el `command` es la ruta de
+`dist-linux-mcp/2MD/2MD-MCP` en lugar del EXE. Conserva completa su distribución separada.
 
 Para clientes con configuración `mcpServers`, como Roo Code, utiliza una entrada
 equivalente a esta, sustituyendo la ruta por la real y conservando los demás
@@ -188,9 +189,12 @@ de verificación.
 ## Preferencias, secretos y red
 
 - Las preferencias no sensibles se guardan localmente fuera de la carpeta de la
-  aplicación, en `%APPDATA%\2MD\settings.json`. Las credenciales de IA y del proxy
-  se guardan en Windows Credential Manager, con los destinos `2MD/api` y
-  `2MD/proxy`; no se guardan en texto plano ni se usa ese formato como alternativa.
+  aplicación, en `%APPDATA%\2MD\settings.json` en Windows y en
+  `$XDG_CONFIG_HOME/2MD/settings.json` (por defecto `~/.config`) en Linux. Las
+  credenciales de IA y del proxy se guardan en Windows Credential Manager, con los
+  destinos `2MD/api` y `2MD/proxy`, o en Linux en Secret Service, con los servicios
+  `2MD/api` y `2MD/proxy` y el usuario `2MD`; no se guardan en texto plano ni se
+  usa ese formato como alternativa.
   Dejar los campos de credenciales vacíos al guardar conserva las existentes.
 - La validación TLS no se desactiva automáticamente. El usuario puede elegir el
   proxy del sistema/entorno, no usar proxy o configurar uno manual, así como un
@@ -203,17 +207,19 @@ de verificación.
 
 ## Distribución
 
-- La aplicación gráfica se distribuye como carpeta portable para Windows, con
-  `2MD.exe`, sus recursos y dependencias nativas. Se debe copiar la carpeta
-  completa; el EXE no funciona de forma independiente.
+- La aplicación gráfica se distribuye como carpeta portable para Windows x64, con
+  `2MD.exe`, y para Linux x64, con el ejecutable `2MD`, junto con sus recursos y
+  dependencias nativas. Se debe copiar la carpeta completa; el ejecutable no
+  funciona de forma independiente.
 - El runtime se carga directamente desde esa carpeta, sin autoextraer la
   distribución a un directorio temporal en cada arranque. No requiere instalación
   ni permisos de administrador, ni Node, Python o Qt instalados en destino.
   Las preferencias y las credenciales conservan sus ubicaciones habituales.
-- MCP se distribuye por separado, con su lanzador de consola y runtime en una
-  carpeta completa, para mantener el transporte stdio.
-- La carpeta `win-unpacked` es un intermedio que el script renombra a `2MD` al
-  completar el empaquetado. El lanzador MCP utiliza su propia copia del Node
+- MCP se distribuye por separado, con su lanzador de consola (`2MD-MCP.exe` en
+  Windows, `2MD-MCP` en Linux) y runtime en una carpeta completa, para mantener
+  el transporte stdio.
+- Las carpetas `win-unpacked` y `linux-unpacked` son intermedios que el script
+  renombra a `2MD` al completar el empaquetado. El lanzador MCP utiliza su propia copia del Node
   integrado en Electron y mantiene stdout reservado al protocolo.
 - Desde las fuentes, con las dependencias instaladas, `npm start` abre la
   aplicación y `npm run mcp` inicia únicamente el servidor stdio con Node.

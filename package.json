@@ -13,7 +13,9 @@
     "mcp": "node app/mcp-entry.js",
     "test": "node --test tests-node/*.test.js",
     "dist": "electron-builder --win dir --x64",
-    "dist:mcp": "electron-builder --win dir --x64 --config.afterPack=.\\scripts\\after-pack.cjs"
+    "dist:mcp": "electron-builder --win dir --x64 --config.afterPack=.\\scripts\\after-pack.cjs",
+    "dist:linux": "electron-builder --linux dir --x64",
+    "dist:linux:mcp": "electron-builder --linux dir --x64 --config.afterPack=./scripts/after-pack.cjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.25.3",
@@ -37,6 +39,10 @@
       "target": "dir",
       "executableName": "2MD",
       "signAndEditExecutable": false
+    },
+    "linux": {
+      "target": "dir",
+      "executableName": "2MD"
     }
   }
 }

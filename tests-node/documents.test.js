@@ -25,7 +25,7 @@ test('real paths cannot escape an allowed directory or use a sibling prefix', as
   await mkdir(path.join(root, 'allowed'));
   await mkdir(path.join(root, 'allowed-other'));
   await writeFile(path.join(root, 'allowed-other', 'private.pdf'), '');
-  await assert.rejects(confined(path.join(root, 'allowed'), '..\\allowed-other\\private.pdf'), /fuera/);
+  await assert.rejects(confined(path.join(root, 'allowed'), path.join('..', 'allowed-other', 'private.pdf')), /fuera/);
 });
 
 test('settings default to no IA or MCP and reject credential-bearing URLs', () => {

@@ -31,11 +31,14 @@ function documentWithImage() {
 
 test('MCP returns readable image resources, confines paths and honors current settings', async t => {
   const root = await mkdtemp(path.join(tmpdir(), '2md-mcp-'));
-  const originalAppdata = process.env.APPDATA;
-  process.env.APPDATA = path.join(root, 'preferences');
+  const variables = ['APPDATA', 'XDG_CONFIG_HOME'];
+  const original = Object.fromEntries(variables.map(name => [name, process.env[name]]));
+  for (const name of variables) process.env[name] = path.join(root, 'preferences');
   t.after(async () => {
-    if (originalAppdata === undefined) delete process.env.APPDATA;
-    else process.env.APPDATA = originalAppdata;
+    for (const name of variables) {
+      if (original[name] === undefined) delete process.env[name];
+      else process.env[name] = original[name];
+    }
     await rm(root, { recursive: true, force: true });
   });
   const allowed = path.join(root, 'allowed');

@@ -3,3 +3,5 @@ build/
 dist/
 dist-node/
 dist-node-mcp/
+dist-linux/
+dist-linux-mcp/

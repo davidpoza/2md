@@ -50,7 +50,10 @@ export const settingsSchema = z.object({
     context.addIssue({ code: 'custom', message: 'Falta el servidor proxy' });
 });
 
-export const settingsPath = path.join(process.env.APPDATA || path.join(homedir(), 'AppData', 'Roaming'), '2MD', 'settings.json');
+const configRoot = process.platform === 'win32'
+  ? process.env.APPDATA || path.join(homedir(), 'AppData', 'Roaming')
+  : process.env.XDG_CONFIG_HOME || path.join(homedir(), '.config');
+export const settingsPath = path.join(configRoot, '2MD', 'settings.json');
 
 export async function atomicWrite(file, content) {
   const temporary = `${file}.${randomUUID()}.tmp`;

@@ -63,7 +63,7 @@ async function request(settings, url, body, signal) {
   if (proxy && !['http:', 'https:'].includes(proxy.protocol)) throw new Error('Solo se admiten proxies HTTP o HTTPS.');
   const agent = proxy ? new HttpsProxyAgent(proxy, { ca }) : undefined;
   const key = body ? getSecret('api') : null;
-  if (body && !key) throw new Error('Falta la API Key en el almacén seguro de Windows.');
+  if (body && !key) throw new Error('Falta la API Key en el almacén seguro del sistema.');
   try {
     return await new Promise((resolve, reject) => {
       const req = (url.protocol === 'https:' ? https : http).request(url, {
@@ -94,7 +94,7 @@ async function request(settings, url, body, signal) {
 export async function completion(settings, messages, signal, activity = () => {}) {
   if (!settings.ai.enabled || !settings.ai.base_url || !settings.ai.model)
     throw new Error('Activa la IA e indica URL y modelo.');
-  if (!getSecret('api')) throw new Error('Falta la API Key en el almacén seguro de Windows.');
+  if (!getSecret('api')) throw new Error('Falta la API Key en el almacén seguro del sistema.');
   const body = { model: settings.ai.model, messages };
   for (const key of ['temperature', 'max_tokens']) if (settings.ai[key] !== null) body[key] = settings.ai[key];
   const url = new URL(`${settings.ai.base_url.replace(/\/+$/, '')}/chat/completions`);
