@@ -260,14 +260,38 @@ cambios, comprueba que el test indicado falla y deshazlo:
 8. Ejecuta `npm ci` y los tests de seguridad en Linux y en Windows, y los controles
    negativos.
 
+## Pipeline de releases
+
+`.github/workflows/release.yml` compila y publica las distribuciones (ver el
+[README](../README.md#releases)). Medidas aplicadas:
+
+- Las acciones se fijan por SHA de commit, con su versión en un comentario:
+  `actions/checkout` v7.0.1, `actions/setup-node` v7.1.0, `actions/upload-artifact`
+  v7.0.2 y `actions/download-artifact` v8.0.2. Una etiqueta movida no cambia el código
+  que se ejecuta; al actualizarlas, resuelve el commit de la nueva etiqueta con
+  `git ls-remote https://github.com/<acción>.git refs/tags/<versión>`.
+- Permisos mínimos: `contents: read` por defecto y `contents: write` solo en el
+  trabajo que crea la release, que no ejecuta código del repositorio. La release se
+  crea con la CLI `gh` del runner y el `GITHUB_TOKEN`, sin acciones de terceros.
+- `actions/checkout` no conserva las credenciales (`persist-credentials: false`).
+- Sin caché de dependencias (`package-manager-cache: false`), para que una caché
+  envenenada no pueda alterar una compilación publicada. Las dependencias se
+  instalan con `npm ci` desde `package-lock.json`, y Xberg desde `vendor/`.
+- Cada compilación ejecuta `npm test`, incluidos los tests de seguridad, antes de
+  generar el zip; un fallo impide publicar la release.
+- La release incluye `SHA256SUMS.txt` con el SHA-256 de cada zip.
+- Los ejecutables no están firmados.
+
+Los runners usan Node 22 con npm 10. Con npm 11.19, electron-builder 26.0.12 falla
+antes de empaquetar con un error `ENOENT` en `node_modules/@antfu/install-pkg`,
+con o sin la copia local de Xberg. Con npm 10 el empaquetado de Linux se ha comprobado
+completo: el binario de Xberg incluido es idéntico al de `vendor/`, la distribución
+convierte PDF y DOCX y el lanzador `2MD-MCP` arranca.
+
 ## Pendiente de verificar
 
 - La equivalencia entre los binarios publicados en npm y el código fuente.
-- El empaquetado con electron-builder desde la copia local: en el entorno de la
-  revisión la compilación de Linux falla antes de empaquetar con un error
-  `ENOENT` en `node_modules/@antfu/install-pkg`, que también se produce sin la copia
-  local.
-- El binario de Windows (`@xberg-io/xberg-win32-x64-msvc`): los tests deben
-  ejecutarse allí.
+- El binario de Windows (`@xberg-io/xberg-win32-x64-msvc`) y el trabajo de Windows
+  de la pipeline: los tests deben ejecutarse allí.
 - Una auditoría de vulnerabilidades de todas las dependencias Rust.
 - El código de Xberg fuera del camino de 2MD (servidor HTTP, MCP propio, crawling).

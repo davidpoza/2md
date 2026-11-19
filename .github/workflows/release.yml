@@ -1,0 +1,116 @@
+# Builds the portable MCP distribution (app + 2MD-MCP launcher) for Linux and Windows.
+# A pushed v* tag publishes both zips as a GitHub release; a manual run only keeps them
+# as workflow artifacts. Actions are pinned to commit SHAs; see docs/security.md.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x64
+          - os: windows-2022
+            platform: windows-x64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Resolve version
+        shell: bash
+        run: |
+          app_version=$(node -p "require('./package.json').version")
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            [ "$GITHUB_REF_NAME" = "v$app_version" ] || { echo "La etiqueta $GITHUB_REF_NAME no coincide con la versión $app_version de package.json." >&2; exit 1; }
+            grep -q "APP_VERSION = '$app_version'" app/conversion.js || { echo "APP_VERSION de app/conversion.js no es $app_version." >&2; exit 1; }
+            version=$GITHUB_REF_NAME
+          else
+            version="v$app_version-${GITHUB_SHA::7}"
+          fi
+          echo "ARCHIVE=2MD-$version-${{ matrix.platform }}.zip" >> "$GITHUB_ENV"
+
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: ./scripts/build.sh --mcp --output dist-release
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\scripts\build.ps1 -Mcp -OutputDirectory dist-release
+
+      # Runs against the node_modules installed by the build script (npm ci).
+      - name: Test
+        run: npm test
+
+      - name: Archive (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cd dist-release
+          zip -r -y -q "../$ARCHIVE" 2MD
+          cd ..
+          sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+
+      - name: Archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist-release\2MD -DestinationPath $env:ARCHIVE
+          $hash = (Get-FileHash -Algorithm SHA256 $env:ARCHIVE).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText("$env:ARCHIVE.sha256", "$hash  $env:ARCHIVE`n")
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: 2MD-${{ matrix.platform }}
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.ARCHIVE }}.sha256
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          pattern: 2MD-*
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat dist/*.sha256 > dist/SHA256SUMS.txt
+          rm dist/*.sha256
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "2MD $GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag

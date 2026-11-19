@@ -57,3 +57,24 @@ Las credenciales se guardan en el almacén Secret Service (GNOME Keyring, KWalle
 que debe estar disponible en la sesión. Si la distribución restringe los espacios
 de nombres sin privilegios (p. ej. AppArmor en Ubuntu 24.04) y Electron no arranca
 por el sandbox, configura `chrome-sandbox` como `root` con permisos `4755`.
+
+## Releases
+
+El workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) compila
+la distribución MCP (la aplicación completa más el lanzador `2MD-MCP`) en Linux x64 y
+en Windows x64, con los mismos scripts `build.sh --mcp` y `build.ps1 -Mcp`, y ejecuta
+los tests sobre cada compilación. Para publicar una versión, actualiza `version` en
+`package.json` y `APP_VERSION` en `app/conversion.js`, haz commit y sube la etiqueta
+correspondiente:
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+La release `v0.2.0` incluye `2MD-v0.2.0-linux-x64.zip`, `2MD-v0.2.0-windows-x64.zip`
+y `SHA256SUMS.txt`. Cada zip contiene la carpeta `2MD`. El workflow falla si la
+etiqueta no coincide con la versión. También se puede lanzar a mano desde la pestaña
+**Actions**; en ese caso no publica una release y deja los zips como artefactos del
+workflow. Los ejecutables no están firmados, por lo que Windows puede mostrar un
+aviso de SmartScreen al abrirlos.
