@@ -43,7 +43,10 @@ export async function documents(paths) {
   return result;
 }
 export async function outputHashes(root, markdown) {
-  const files = [markdown];
+  // Keys are relative to the real root: entries below are real paths, and an unresolved
+  // root (Windows 8.3 names, symlinked folders) would produce `../` keys.
+  root = await realpath(root);
+  const files = [await confined(root, markdown)];
   for (const folder of ['assets', 'diagrams']) {
     let entries;
     try { entries = await readdir(path.join(root, folder), { recursive: true, withFileTypes: true }); }

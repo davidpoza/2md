@@ -67,7 +67,7 @@ test('AI context excludes pending and accepted diagrams, including long previous
   assert.match(references[0].context, /Primera sección/);
   assert.match(references[1].context, /Segunda sección/);
   assert.match(references[1].context, /Texto final/);
-  assert.equal(references[1].image, path.join(root, 'assets', 'second.png'));
+  assert.equal(references[1].image, await fs.promises.realpath(path.join(root, 'assets', 'second.png')));
   assert.equal(references[0].stored.pending, true);
   assert.equal(references[0].stored.code, previous.trim());
   assert.equal(references[1].stored.code, current);
